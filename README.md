@@ -1,4 +1,3 @@
-# cicspwn
 CicsPwn: a tool to pentest CICS transaction servers on z/OS
 
 usage: cicspwn.py [-h] [-a APPLID] [-i] [-t] [-f] [-p PATTERN] [-U USERID]
