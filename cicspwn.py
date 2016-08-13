@@ -540,7 +540,13 @@ def rand_name(size=8, chars=string.ascii_letters):
 	return ''.join(random.choice(chars) for x in range( 1, size ))
 
 def dummy_jcl(lhost):
-    dummy_jcl = '''//CICSUSER JOB (INTRDR),USER=SVTSCU,CLASS=A
+    
+    if results.surrogat_user:
+      job_card = '//CICSUSER JOB (INTRDR),USER='+results.surrogat_user+',CLASS=A'      
+    else:
+      job_card = '//CICSUSER JOB (INTRDR),CLASS=A'
+      
+    dummy_jcl = job_card+'''
 //*
 //STEP01 EXEC  PGM=IKJEFT01
 //SYSTSPRT DD  SYSOUT=*
