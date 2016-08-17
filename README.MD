@@ -1,5 +1,19 @@
+# CICSpwn
+## Description  
+CICSpwn is a tool to pentest a CICS Transaction servers on z/OS.
+
+## Features    
+* Get general information about CICS and the underlying z/OS  
+  * List available IBM supplied transactions
+  * Get active sessions and userids
+  * Check if possible to remotely execute code
+  * Check the presence of RACF/ACF2/TopSecret security  
+ * List and read files created by the application 
+ * List available transactions
+ * Remotely execute code using Spoolopen and TDqueue
+## Usage
 ```
-python cicspwn.py -h
+$python cicspwn.py -h
 usage: cicspwn.py [-h] [-a APPLID] [-i] [-t] [-f] [-p PATTERN] [-U USERID]
                   [-P PASSWORD] [--get-file FILENAME]
                   [--enable-trans ENA_TRANS] [-q] [-u] [-g SURROGAT_USER]
@@ -46,3 +60,15 @@ optional arguments:
                         (host:port)
   -j JCL, --jcl JCL     Custom JCL file to provide
 ```
+## Prerequisites
+3270 Python library [py3270](https://pypi.python.org/pypi/py3270/0.2.0)
+
+## Copyright and license  
+cicsPWN is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.  
+CICSpwn is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with nmaptocsv. If not, see http://www.gnu.org/licenses/.
+
+## Contact
+Ayoub ELAASSAL ayoul3.zos at gmail dot com
