@@ -1,6 +1,6 @@
 # CICSpwn
 ## Description  
-CICSpwn is a tool to pentest a CICS Transaction servers on z/OS.
+CICSpwn is a tool to pentest CICS Transaction servers on z/OS.
 
 ## Features    
 * Get general information about CICS and the underlying z/OS  
