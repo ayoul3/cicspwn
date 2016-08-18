@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import py3270
 import os
 import re
@@ -11,6 +13,23 @@ from random import randrange
 from py3270wrapper import WrappedEmulator
 import signal
 import argparse 
+
+####################################################################################
+#			                        *******  CICSpwn  ********                             
+####################################################################################
+#
+# CICSpwn is a tool to pentest CICS servers by abusing IBM Supplied transactions 
+# Code execution, file reading, information gathering..all the good stuff      
+#                                                                              
+# Refer to https://github.com/ayoul3                                   
+# Requirements for JCL submission :
+#        SPOOL=YES in SIT table
+#        or TDQueue pointing to INTRDR (which was defined in CICS start up JCL)
+#                                                                       
+# Created by: Ayoul3 (@ayoul3__              	
+# Credit for the reverse shell goes to @mainframed767 (https://github.com/mainframed)
+# Copyright GPL 2016                                             	  
+#####################################################################################
 
 TRAN_NUMBER = 1000
 SLEEP = 0.5
