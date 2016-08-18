@@ -7,9 +7,9 @@ CICSpwn is a tool to pentest CICS Transaction servers on z/OS.
   * List available IBM supplied transactions
   * Get active sessions and userids
   * Get path (HLQ) of files and libraries
-  * Check if CICS is using RACF/ACF2/TopSecret 
- * Read files created by the application 
- * Remotely execute code using Spoolopen and TDqueue
+  * Check if CICS is using RACF/ACF2/TopSecret   
+* Read files created by the application 
+* Remotely execute code using Spoolopen and TDqueue
 ## Usage
 ```
 $python cicspwn.py -h
