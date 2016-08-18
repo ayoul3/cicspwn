@@ -15,7 +15,7 @@ import signal
 import argparse 
 
 ####################################################################################
-#			                        *******  CICSpwn  ********                             
+#			              *******  CICSpwn  ********                             
 ####################################################################################
 #
 # CICSpwn is a tool to pentest CICS servers by abusing IBM Supplied transactions 
