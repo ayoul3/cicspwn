@@ -6,10 +6,9 @@ CICSpwn is a tool to pentest CICS Transaction servers on z/OS.
 * Get general information about CICS and the underlying z/OS  
   * List available IBM supplied transactions
   * Get active sessions and userids
-  * Check if possible to remotely execute code
-  * Check the presence of RACF/ACF2/TopSecret security  
- * List and read files created by the application 
- * List available transactions
+  * Get path (HLQ) of files and libraries
+  * Check if CICS is using RACF/ACF2/TopSecret 
+ * Read files created by the application 
  * Remotely execute code using Spoolopen and TDqueue
 ## Usage
 ```
