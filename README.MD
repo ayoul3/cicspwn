@@ -13,10 +13,22 @@ CICSpwn is a tool to pentest CICS Transaction servers on z/OS.
 ## Usage
 ```
 $python cicspwn.py -h
+  
+       ::::::::   :::::::::::   ::::::::    ::::::::   ::::::::: :::       :::::::    ::: 
+      :+:    :+:      :+:      :+:    :+:  :+:    :+:  :+:    :+::+:       :+::+:+:   :+: 
+      +:+             +:+      +:+         +:+         +:+    +:++:+       +:+:+:+:+  +:+ 
+      +#+             +#+      +#+         +#++:++#++  +#++:++#+ +#+  +:+  +#++#+ +:+ +#+  
+      +#+             +#+      +#+                +#+  +#+       +#+ +#+#+ +#++#+  +#+#+# 
+      #+#    #+#      #+#      #+#    #+#  #+#    #+#  #+#        #+#+# #+#+# #+#   #+#+# 
+       ########   ###########   ########    ########   ###         ###   ###  ###    #### 
+      
+                            The tool for some CICS p0wning !		Author: @Ayoul3__
+
 usage: cicspwn.py [-h] [-a APPLID] [-i] [-t] [-f] [-p PATTERN] [-U USERID]
                   [-P PASSWORD] [--get-file FILENAME]
                   [--enable-trans ENA_TRANS] [-q] [-u] [-g SURROGAT_USER]
-                  [-s SUBMIT] [--queue QUEUE] [-l LHOST] [-j JCL]
+                  [-s SUBMIT] [--queue QUEUE] [--ftp-cmds FTP_CMDS]
+                  [--node NODE] [-l LHOST] [--port PORT] [-j JCL]
                   IP PORT
 
 CicsPwn: a tool to pentest CICS transaction servers on z/OS
@@ -52,12 +64,17 @@ optional arguments:
                         submitting a job
   -s SUBMIT, --submit SUBMIT
                         Submit JCL to CICS server. Specify:
-                        dummy,reverse,custom (need -j option),cicsshell
+                        dummy,reverse,custom (need -j option),cicsshell,ftp
   --queue QUEUE         Provides the name of the TD queue to submit a JOB
+  --ftp-cmds FTP_CMDS   Files containig a list of ftp commands to execute
+  --node NODE           System node name where the JOB should be submitted
+                        (works only with Spool functions)
   -l LHOST, --lhost LHOST
                         Remote server to call back to for reverse shell
                         (host:port)
+  --port PORT           Remote port to open for bind shell in REXX
   -j JCL, --jcl JCL     Custom JCL file to provide
+
 ```
 ## Prerequisites
 3270 Python library [py3270](https://pypi.python.org/pypi/py3270/0.2.0)
