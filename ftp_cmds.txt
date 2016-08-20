@@ -1,0 +1,9 @@
+# username
+ayoul3
+# username
+password
+#passive mode
+quote pasv
+ascii
+get readme.txt 'CICSUSER.README5'
+exit
