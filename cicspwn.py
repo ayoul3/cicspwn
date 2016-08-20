@@ -12,7 +12,8 @@ import random
 import platform
 from random import randrange
 import signal
-import argparse 
+import argparse
+from time import sleep
 from py3270 import Emulator,CommandError,FieldTruncateError,TerminatedError,WaitError,KeyboardStateError,FieldTruncateError,x3270App,s3270App
 #from py3270wrapper import WrappedEmulator
 
@@ -171,10 +172,6 @@ def logo():
       
                             The tool for some CICS p0wning !\t\tAuthor: @Ayoul3__\n'''+ bcolors.ENDC
   
-
-def sleep():
-  time.sleep(SLEEP)
-
 def signal_handler(signal, frame):
         print 'Done !'
         os._exit(0)
@@ -278,7 +275,7 @@ def check_valid_applid(applid, do_authent, method = 1):
     
     em.send_string(applid) #CICS APPLID in VTAM
     em.send_enter()   
-    sleep()
+    sleep(SLEEP)
     
     if do_authent:
         pos_pass=1;
@@ -295,19 +292,19 @@ def check_valid_applid(applid, do_authent, method = 1):
       
     if method ==3:
       em.send_pf3()
-      sleep()
+      sleep(SLEEP)
       em.send_clear()
             
     if method ==2:
       em.send_clear()
-      sleep()
+      sleep(SLEEP)
       em.send_clear()    
       
     em.move_to(1,1)  
     #em.send_string('CESF') #CICS CESF is the Signoff command
     em.send_pf3()
     em.send_enter()
-    sleep();
+    sleep(SLEEP);
     
     if em.find_response( 'DFHAC2001'):
         whine('Access to CICS Terminal is possible with APPID '+applid,'good')
@@ -353,7 +350,7 @@ def get_cics_value(request, identifier, double_enter=False):
     if double_enter:
         em.send_enter();
     
-    sleep()
+    sleep(SLEEP)
     em.send_pf5();
     data = em.screen_get()
     j=5; out = []
@@ -388,7 +385,10 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
         em.send_pf11();
         i +=1;
     data = em.screen_get()
-         
+    if "NOT AUTHORIZED" in data[2]:
+        whine (request+" not authorized", 'err')
+        return None
+        
     for d in data:
        if pattern in d:
            pos= d.find(pattern) + len(pattern)
@@ -407,7 +407,10 @@ def send_cics(request, double=False):
       Sends request to CICS
       handles double send required by CECI
     """
-    em.send_clear();
+    
+    #em.send_clear();
+    #data = em.screen_get()
+    
     em.move_to(1,2);
     em.safe_send(format_request(request));
     em.send_enter();
@@ -477,6 +480,10 @@ def get_users():
     em.send_enter();
     
     data = em.screen_get()
+    if "NOT AUTHORIZED" in data[2]:
+        whine ("CEMT I TASK not authorized", 'err')
+        return None
+        
     for d in data:
        if "Use" in d:
            pos= d.find("Use(") + len("Use(")
@@ -490,7 +497,8 @@ def get_version():
       Called by get_infos(). retrieves current version of CICS
     """
    version = query_cics_scrap("CEMT I SYS", "Cicstslevel(", 8, 0, 0 )
-   version = version.strip("0").replace("0",".")
+   if version:
+     version = version.strip("0").replace("0",".")
    return version     
    
 def get_infos():
@@ -509,7 +517,8 @@ def get_infos():
     version = None
         
     version = get_version();
-    whine("CICS TS Version "+version, 'good',1);
+    if version :
+       whine("CICS TS Version "+version, 'good',1);
     #~ if query_cics('CEMT','Inquire',5):
       #~ cemt = True
       #~ em.send_pf3();
@@ -568,41 +577,38 @@ def get_infos():
         whine('No active user', 'info',1)
         
     whine("JCL Submission", 'info');
-    spool = send_cics('CECI SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
-    em.send_pf3();
+    
     if cemt:
         tdqueue = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
-        tdqueue2 = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
+        tdqueue2 = query_cics_scrap('INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
         
         em.send_pf3();    
     
-    if spool and ceci:
-        whine('Access to the internal spool is apparently available','good',1);
                 
-    if (tdqueue !="*" or tdqueue2 !="*") and ceci:
+    if (tdqueue !="*" or tdqueue2 !="*") and  (tdqueue or tdqueue2 ) and ceci:
         whine('Transiant queue to access spool is apparently available','good',1);
         whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2);
-       
-          
+    
+           
+    spool = send_cics('CECI SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
+    
+    if spool and ceci:
+        whine('Access to the internal spool is apparently available','good',1);
+              
     if spool == False and tdqueue ==False:
         whine('No way to submit JCL through this CICS region','err',1);
     
     whine("Access control", 'info');
         
     variables = ["READ"]
-    read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
+    read = get_cics_value('QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
     read = ''.join(read)
     if read == "+0000000035":
         whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1);
         sys.exit();
-        
-    variables = ["READ"]
-    read = get_cics_value('CECI QUERY SECURITY RESC(TSOAUTH) RESID(JCL) RESIDL(3) ', variables, True)
-    read = ''.join(read)
-    if read == "+0000000035":
-        whine('User '+userid+' authorized to submit JOBS','good',1);
     else:
-        whine('User '+userid+' not authorized to submit JOBS','err',1);
+        whine('CICS uses an ESM (RACF/ACF2/TopSecret), might be tricky to access some functions','info',1);
+        sys.exit();           
     
     # add check for OMVS, SUPERUSER, SERVER, DAMON, etc.
     
@@ -1054,7 +1060,7 @@ def set_mixedCase():
         
     em.send_pf3();
     em.move_to(1,2);
-    sleep()
+    sleep(SLEEP)
     
     req_set_term = 'CECI SET TERM('+termID+') NOUCTRAN'
     em.safe_send(format_request(req_set_term))
@@ -1541,7 +1547,7 @@ def check_VTAM(em):
 	#sleep()
 	if not em.find_response( 'IBMECHO ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
 		for i in xrange(1,5):
-			time.sleep(0.3+(i/10))
+			sleep(0.3+(i/10))
 			if em.find_response( 'IBMECHO ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
 				whine('The host is slow, increasing delay by 0.1s to: 0.3s',kind='warn')
 			else:
