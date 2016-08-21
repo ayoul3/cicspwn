@@ -45,13 +45,11 @@ DO_AUTHENT = False
 # TO DO:
 #   Write a CICS SHELL in COBOL
 #   Distinguish VTAM authentication from CICS authentication
-#   Beautify the code...
-#   Handle errors
-#   job to get a file
-#   job to put a file
-#   trail everything in log file
-#   clean everything
-#   document more
+#   Query security with any class and resource
+#   find a way to know if propcntl is active, and check surrogat permissions
+#   find a way to know if propcntl is active
+#   CEDA VIEW CON
+
 
 
 class bcolors:
@@ -499,7 +497,14 @@ def get_version():
    version = query_cics_scrap("CEMT I SYS", "Cicstslevel(", 8, 0, 0 )
    if version:
      version = version.strip("0").replace("0",".")
-   return version     
+   return version
+        
+def get_default_user():
+   """
+      Called by get_infos(). retrieves the default pre auth user
+    """
+   default_user = query_cics_scrap("CEMT I SYS", "Dfltuser(", 8, 0, 0 )
+   return default_user     
    
 def get_infos():
     """
@@ -518,7 +523,13 @@ def get_infos():
         
     version = get_version();
     if version :
-       whine("CICS TS Version "+version, 'good',1);
+       whine("CICS TS Version: "+version, 'good',1);
+    
+    default_user = get_default_user();
+    
+    if default_user :
+       whine("CICS default user: "+default_user, 'good',1);
+       
     #~ if query_cics('CEMT','Inquire',5):
       #~ cemt = True
       #~ em.send_pf3();
@@ -580,11 +591,11 @@ def get_infos():
     
     if cemt:
         tdqueue = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
-        tdqueue2 = query_cics_scrap('INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
+        tdqueue2 = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
         
         em.send_pf3();    
     
-                
+    
     if (tdqueue !="*" or tdqueue2 !="*") and  (tdqueue or tdqueue2 ) and ceci:
         whine('Transiant queue to access spool is apparently available','good',1);
         whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2);
@@ -615,6 +626,7 @@ def get_infos():
     #whine("Connection information", 'info');       
     
     #DB2: authtype, connectst, db2release, db2id
+    #ISC connections: bind securty, attachsec
     #MQ: ???        
    
 def get_transactions(transid):
@@ -1413,6 +1425,9 @@ def fetch_userids():
     """
         Looks in different menus for userids
     """
+    default_u = tcl_u = query_cics_scrap("CEMT I SYS", "Dfltuser(", 8, 0, 0)
+    print default_u+" (Default user)" if default_u else '';
+    
     tcl_u = query_cics_scrap("CEMT I TCL", "Installu(", 8, 0, 0)
     if not tcl_u:
       tcp_u = query_cics_scrap("CEMT I TCPIPSERV", "Installusrid(", 8, 1, 1)
@@ -1427,6 +1442,16 @@ def fetch_userids():
     
     db2_u = query_cics_scrap("CEMT I DB2C", "Signid(", 8, 1, 1)
     print db2_u if db2_u else '';
+    
+    pro_u = query_cics_scrap("CEMT I PROFILE", "Installu(", 8, 0, 0)
+    print pro_u if pro_u else '';
+    
+    uow_u = query_cics_scrap("CEMT I UOW ", "Use(", 8, 0, 0)
+    if uow_u:
+       for uu in uow_u.split("\n"):
+           if default_u and default_u != uu:
+              uu += " (Probbaly region ID)"
+           print uu
     
 def check_surrogat(surrogat_user):
     """
@@ -1448,6 +1473,25 @@ def check_surrogat(surrogat_user):
         whine('You can impersonate '+surrogat_user,'good',0);
     else:
         whine('You cannot impersonate '+surrogat_user,'err',0);
+        
+def check_propagate(propagate_user):
+    """
+        use CECI QUERY Security to check if CICS region ID can submit JOBS
+    """
+    variables = ["READ"]
+    read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
+    read = ''.join(read)
+    if read == "+0000000035":
+        whine('CICS does not use RACF/ACF2/TopSecret. It is impossible to query the SURROGAT class','err',0);
+        sys.exit();    
+    
+    length = str(len(propagate_user))
+    result = send_cics('CECI QUERY SECURI RESC(PROPCNTL) RESID('+propagate_user.upper()+') RESIDL('+length+')', True);
+    
+    if result:
+        whine(propagate_user+' defined in PROPCNTL, it is not allowed to submit JOBS','err',0);
+    else:
+        whine(propagate_user+' not defined in PROPCNTL','good',0);
 
 def main(results):
     global DO_AUTHENT
@@ -1531,6 +1575,10 @@ def main(results):
     elif results.surrogat_user:
         whine("Checking whether you can impersonate Userid "+results.surrogat_user, 'info')
         check_surrogat(results.surrogat_user)
+        
+    elif results.propagate_user:
+        whine("Checking whether "+results.propagate_user+' can submit JOBs', 'info')
+        check_propagate(results.propagate_user)
     
     em.terminate()
   
@@ -1602,6 +1650,7 @@ if __name__ == "__main__" :
     parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
     parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
     parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
+    parser.add_argument('-r','--propagateUser',help='Given the region user ID, checks wether you are allowed to use it to submit JOBs', default=False,dest='propagate_user')
     parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell,ftp',dest='submit')
     parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
     parser.add_argument('--ftp-cmds',help='Files containig a list of ftp commands to execute',dest='ftp_cmds')
