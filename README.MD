@@ -13,7 +13,7 @@ CICSpwn is a tool to pentest CICS Transaction servers on z/OS.
 ## Usage
 ```
 $python cicspwn.py -h
-  
+
        ::::::::   :::::::::::   ::::::::    ::::::::   ::::::::: :::       :::::::    ::: 
       :+:    :+:      :+:      :+:    :+:  :+:    :+:  :+:    :+::+:       :+::+:+:   :+: 
       +:+             +:+      +:+         +:+         +:+    +:++:+       +:+:+:+:+  +:+ 
@@ -27,8 +27,9 @@ $python cicspwn.py -h
 usage: cicspwn.py [-h] [-a APPLID] [-i] [-t] [-f] [-p PATTERN] [-U USERID]
                   [-P PASSWORD] [--get-file FILENAME]
                   [--enable-trans ENA_TRANS] [-q] [-u] [-g SURROGAT_USER]
-                  [-s SUBMIT] [--queue QUEUE] [--ftp-cmds FTP_CMDS]
-                  [--node NODE] [-l LHOST] [--port PORT] [-j JCL]
+                  [-r PROPAGATE_USER] [-s SUBMIT] [--queue QUEUE]
+                  [--ftp-cmds FTP_CMDS] [--node NODE] [-l LHOST] [--port PORT]
+                  [-j JCL]
                   IP PORT
 
 CicsPwn: a tool to pentest CICS transaction servers on z/OS
@@ -62,9 +63,13 @@ optional arguments:
   -g SURROGAT_USER, --surrogat SURROGAT_USER
                         Checks wether you can impersonate another user when
                         submitting a job
+  -r PROPAGATE_USER, --propagateUser PROPAGATE_USER
+                        Given the region user ID, checks wether you are
+                        allowed to use it to submit JOBs
   -s SUBMIT, --submit SUBMIT
                         Submit JCL to CICS server. Specify:
-                        dummy,reverse,custom (need -j option),cicsshell,ftp
+                        dummy,reverse_unix, reverse_tso, direct_unix,
+                        reverse_unix, ftp or custom (need -j option)
   --queue QUEUE         Provides the name of the TD queue to submit a JOB
   --ftp-cmds FTP_CMDS   Files containig a list of ftp commands to execute
   --node NODE           System node name where the JOB should be submitted
