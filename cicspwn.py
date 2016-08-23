@@ -47,7 +47,8 @@ DO_AUTHENT = False
 #   Distinguish VTAM authentication from CICS authentication
 #   Query security with any class and resource
 #   CEDA VIEW CON
-#   Execute unix commands
+#   read TS Queues
+#   
 
 
 
@@ -660,6 +661,48 @@ def get_transactions(transid):
      if number_tran == 0:
        whine('No transaction matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
 
+def get_tsqueues(tsqueue):
+     """
+        Get all tsqueues defined in CICS
+     """ 
+     em.send_clear()
+     em.move_to(1,2);
+          
+     print "Tsqueue\tItems\tLength\tTransaction"
+     
+     em.safe_send(format_request('CEMT Inquire Tsq('+tsqueue+')'));
+     em.send_enter()
+     
+     #sleep()
+     number_tsq = 0;
+     more = True
+     
+     while (more):
+        more = False;
+        data = em.screen_get()
+        for d in data:
+            if "Tsq(" in d and "NOT FOUND" not in d:
+                number_tsq +=1;
+                if (number_tsq % 9) ==0 and d[1]=="+":
+                    more = True
+                    continue
+                    
+                tsq_name = d[7:13].strip()
+                tsq_items = d[29:34].strip()
+                tsq_length = d[40:50].strip()
+ 
+                out = tsq_name + "\t" + tsq_items +"\t" + tsq_length
+            elif "Tra(" in d:
+                tsq_tran = d[10:14]
+                out += "\t"+ tsq_tran
+                print out
+                
+        if more:
+            em.send_pf11();
+      
+     if number_tsq == 0:
+       whine('No tsq matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
+   
 def get_files(filename):
      """
         Get all files defined in CICS
@@ -704,6 +747,77 @@ def get_files(filename):
      if number_files == 0:
        whine('No files matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
 
+def fetch_tsq_item(tsq_name, item):
+    """
+        Gets the record item in a temporary storage queue.
+    """
+    em.move_to(1,2);
+    req_read = 'CECI READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
+    em.safe_send(req_read)
+    em.send_enter()
+    em.send_enter() # Send twice Enter to confirm transaction
+    
+    data = em.screen_get();
+    if "NORMAL" not in data[22]:
+        whine(data[22],'err')
+        return -1    
+    
+    em.send_pf5()   # Access Variable definition
+    
+    data = em.screen_get()
+    posx = 0     # localize the variable &FI
+    i =0;
+    for d in data:
+        if "&FI" in d :
+            posx = i
+        i +=1    
+        
+    em.move_to(posx+1,2)
+    
+    em.send_enter()
+    
+    data = em.screen_get()
+    out = ""
+    for d in data:        
+      if d.find("+00") < 5 and d.find("+00") > -1:
+         out += d[10:]
+    return out
+    
+def get_tsq_content():
+    """
+        If the file is closed or disabled, it activates it before retrieving its content
+    """
+    
+    items=0;
+    current_item = 1;
+    em.move_to(1,2);
+    
+    if len(results.tsq_name) > 16:
+       whine('TSQueue name cannot be over 16 characters, Name will be truncated','err')
+    
+    tsq_name = results.tsq_name[:16]
+    
+    
+    ## get file properties ##
+    req_list_file = 'CEMT I TSQ('+tsq_name.upper()+')'
+    em.safe_send(format_request(req_list_file))
+    em.send_enter()
+    data = em.screen_get()
+    for d in data:
+       if tsq_name.upper() in d and "I TSQ" not in d:
+          items = int(d[29:34].strip())
+    
+    if items ==0:
+        whine("TSQueue "+tsq_name+" could not be found", 'err')
+        sys.exit();
+    
+    
+    em.send_pf3() 
+    em.move_to(1,2);
+    while current_item <= items:
+       print fetch_tsq_item(tsq_name, current_item)
+       current_item +=1
+
 def fetch_content(filename, ridfld, keylength):
     """
         Gets the record ridfld in a file.
@@ -718,7 +832,7 @@ def fetch_content(filename, ridfld, keylength):
     data = em.screen_get();
     if "NORMAL" not in data[22]:
         whine(data[22],'err')
-        return -1    
+        sys.exit();   
     
     em.send_pf5()   # Access Variable definition
     
@@ -818,11 +932,11 @@ def get_file_content():
     
     next_ridfld = 0;
     
-    while int(next_ridfld) != -1:
+    while int(next_ridfld) != -1 and int(next_ridfld) < 1000000:
        ridfld = next_ridfld
        next_ridfld = fetch_content(filename, ridfld, keylength)
        next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
-         
+                
 def dummy_jcl(lhost):
     """
         PoC that executes an FTP to verify Job submission and network filtering
@@ -1571,9 +1685,23 @@ def main(results):
         whine("Getting all files that match "+filename, 'info')
         get_files(filename);
         
+    elif results.tsqueues:
+        if len(results.pattern) > 16:
+           whine('TS queues\' ID cannot be over 16 characters, TS queue name will be truncated','err')
+        if len(results.pattern) < 16 and "*" not in results.pattern:
+           results.pattern +="****"
+         
+        tsqueues = results.pattern[:16]
+        whine("Getting all tsqueues that match "+tsqueues, 'info')
+        get_tsqueues(tsqueues);
+        
     elif results.filename:
         whine("Getting Attributes of file "+results.filename, 'info')
         get_file_content();
+    
+    elif results.tsq_name:
+        whine("Getting content of TSQeueue "+results.tsq_name, 'info')
+        get_tsq_content();
 
     elif results.ena_trans:
         whine("Activating the transaction "+results.ena_trans, 'info')
@@ -1664,10 +1792,12 @@ if __name__ == "__main__" :
     parser.add_argument('-i','--info',help='Gather information about a CICS region',action='store_true',default=False,dest='info')
     parser.add_argument('-t','--trans',help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
     parser.add_argument('-f','--files',help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
+    parser.add_argument('-e','--tsqueues',help='List all temporary storage queues on TS CICS',action='store_true',default=False,dest='tsqueues')
     parser.add_argument('-p','--pattern',help='Specify a pattern of a files/transaction to get (default is "*")',default="*",dest='pattern')
     parser.add_argument('-U','--userid',help='Specify a userid to use on CICS',dest='userid')
     parser.add_argument('-P','--password',help='Specify a password for the userid',dest='password')
     parser.add_argument('--get-file',help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
+    parser.add_argument('--get-tsq',help='Get the content of a temporary storage queue. ',dest='tsq_name')
     parser.add_argument('--enable-trans',help='Enable a single transaction ',dest='ena_trans')
     parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
     parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
