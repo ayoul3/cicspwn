@@ -530,24 +530,24 @@ def get_infos():
     if default_user :
        whine("CICS default user: "+default_user, 'good',1);
        
-    #~ if query_cics('CEMT','Inquire',5):
-      #~ cemt = True
-      #~ em.send_pf3();
-    #~ if query_cics('CEDA','ALter',5):
-      #~ ceda = True
-      #~ em.send_pf3();        
-    #~ if query_cics('CECI','ACquire',5):
-        #~ ceci = True
-        #~ em.send_pf3();
-    #~ if query_cics('CECS','ACquire',5):
-        #~ ceci = True
-        #~ em.send_pf3();
-    #~ if query_cics('CEDF ,OFF','EDF MODE OFF',1):
-        #~ cedf = True
-        #~ em.send_pf3();
-    #~ if query_cics('CEBR','ENTER COMMAND',2):
-        #~ cebr = True
-        #~ em.send_pf3();
+    if query_cics('CEMT','Inquire',5):
+      cemt = True
+      em.send_pf3();
+    if query_cics('CEDA','ALter',5):
+      ceda = True
+      em.send_pf3();        
+    if query_cics('CECI','ACquire',5):
+        ceci = True
+        em.send_pf3();
+    if query_cics('CECS','ACquire',5):
+        ceci = True
+        em.send_pf3();
+    if query_cics('CEDF ,OFF','EDF MODE OFF',1):
+        cedf = True
+        em.send_pf3();
+    if query_cics('CEBR','ENTER COMMAND',2):
+        cebr = True
+        em.send_pf3();
         
     em.send_clear()
     whine("Available IBM supplied transactions: ", 'info');
