@@ -280,10 +280,13 @@ def check_valid_applid(applid, do_authent, method = 1):
         pos_pass=1;
         data = em.screen_get()   
         for d in data:
-            if "Password" in d or "Code" in d:
+            if "PASSWORD" in d.upper() or "CODE" in d.upper() or "PASSE" in d.upper():
                 break;
             else:
                pos_pass +=1
+            if pos_pass > 23:
+                whine("Could not find a password field. Was looking for \"password\", \"code\" or \"pass\" strings",'err')
+                sys.exit();
         do_authenticate(results.userid, results.password, pos_pass)
     
     if method ==1:
@@ -1605,6 +1608,7 @@ def check_surrogat(surrogat_user):
     """
         use CECI QUERY Security to check if CICS region ID can impersonate another user
     """
+    whine("A JOB gets submitted with CICS Region ID, which may or may not impersonate users no matter the result of this check", 'warn')
     variables = ["READ"]
     read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
     read = ''.join(read)
@@ -1801,8 +1805,10 @@ if __name__ == "__main__" :
     group_info.add_argument('-p', '--pattern', help='Specify a pattern of a files/transaction/tsqueue to get (default is "*")',default="*",dest='pattern')
     group_info.add_argument('-q', '--quiet', help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
     
+    
     group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
     group_trans.add_argument('--enable-trans', help='Enable a transaction (keyword ALL to enable every transaction) ',dest='ena_trans')
+    
     
     group_storage.add_argument('-f','--files', help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
     group_storage.add_argument('-e','--tsqueues', help='List all temporary storage queues on TS CICS',action='store_true',default=False,dest='tsqueues')
@@ -1811,12 +1817,10 @@ if __name__ == "__main__" :
     group_storage.add_argument('--enable-files', help='Enable a file (keyword ALL to enable every file) ',dest='ena_files')    
     
     
-    
     group_access.add_argument('-U', '--userid', help='Specify a userid to use on CICS', dest='userid')
     group_access.add_argument('-P', '--password', help='Specify a password for the userid', dest='password')
     group_access.add_argument('-r', help='Given the region user ID, checks wether you are allowed to use it to submit JOBs', default=False,dest='propagate_user')
     group_access.add_argument('-g', help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
-    
     
     
     
@@ -1827,7 +1831,6 @@ if __name__ == "__main__" :
     group_job.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
     group_job.add_argument('--port',help='Remote port to open for bind shell in REXX',dest='port')
     group_job.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
-    
     
     
     results = parser.parse_args()
