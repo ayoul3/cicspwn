@@ -49,6 +49,7 @@ DO_AUTHENT = False
 #   Query security with any class and resource
 #   CEDA VIEW CON
 #   CEDA define files and transactions
+#   Add groups in the help menu
 
 
 
@@ -1788,31 +1789,47 @@ if __name__ == "__main__" :
     parser.add_argument('PORT',help='CICS/VTAM server Port')
     parser.add_argument('-a','--applid',help='CICS ApplID on VTAM, default is CICS',default="CICS",dest='applid')
 
-    parser.add_argument('-A','--all',help='Gather all information about a CICS Transaction Server',action='store_true',default=False,dest='all_options')
-    parser.add_argument('-i','--info',help='Gather basic information about a CICS region',action='store_true',default=False,dest='info')
-    parser.add_argument('-t','--trans',help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
-    parser.add_argument('-f','--files',help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
-    parser.add_argument('-e','--tsqueues',help='List all temporary storage queues on TS CICS',action='store_true',default=False,dest='tsqueues')
-    parser.add_argument('-p','--pattern',help='Specify a pattern of a files/transaction to get (default is "*")',default="*",dest='pattern')
-    parser.add_argument('-U','--userid',help='Specify a userid to use on CICS',dest='userid')
-    parser.add_argument('-P','--password',help='Specify a password for the userid',dest='password')
-    parser.add_argument('--get-file',help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
-    parser.add_argument('--get-tsq',help='Get the content of a temporary storage queue. ',dest='tsq_name')
-    parser.add_argument('--enable-trans',help='Enable a transaction (keyword ALL to enable every transaction) ',dest='ena_trans')
-    parser.add_argument('--enable-files',help='Enable a file (keyword ALL to enable every file) ',dest='ena_files')
-    parser.add_argument('-q','--quiet',help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
-    parser.add_argument('-u','--userids',help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
-    parser.add_argument('-g','--surrogat',help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
-    parser.add_argument('-r','--propagateUser',help='Given the region user ID, checks wether you are allowed to use it to submit JOBs', default=False,dest='propagate_user')
-    parser.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse_unix, reverse_tso, direct_unix, reverse_unix, ftp or custom (need -j option)',dest='submit')
-    parser.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
-    parser.add_argument('--ftp-cmds',help='Files containig a list of ftp commands to execute',dest='ftp_cmds')
-    parser.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
-
-    parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
-    parser.add_argument('--port',help='Remote port to open for bind shell in REXX',dest='port')
-    parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
-
+    group_info = parser.add_argument_group("Information gathering")
+    group_storage = parser.add_argument_group("Storage options")
+    group_trans = parser.add_argument_group("Transaction options")
+    group_access = parser.add_argument_group("Access options")
+    group_job = parser.add_argument_group("JOB options")
+    
+    group_info.add_argument('-A', '--all', help='Gather all information about a CICS Transaction Server',action='store_true',default=False,dest='all_options')
+    group_info.add_argument('-i', '--info', help='Gather basic information about a CICS region',action='store_true',default=False,dest='info')    
+    group_info.add_argument('-u', '--userids', help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
+    group_info.add_argument('-p', '--pattern', help='Specify a pattern of a files/transaction/tsqueue to get (default is "*")',default="*",dest='pattern')
+    group_info.add_argument('-q', '--quiet', help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
+    
+    group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
+    group_trans.add_argument('--enable-trans', help='Enable a transaction (keyword ALL to enable every transaction) ',dest='ena_trans')
+    
+    group_storage.add_argument('-f','--files', help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
+    group_storage.add_argument('-e','--tsqueues', help='List all temporary storage queues on TS CICS',action='store_true',default=False,dest='tsqueues')
+    group_storage.add_argument('--get-file', help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
+    group_storage.add_argument('--get-tsq', help='Get the content of a temporary storage queue. ',dest='tsq_name')
+    group_storage.add_argument('--enable-files', help='Enable a file (keyword ALL to enable every file) ',dest='ena_files')    
+    
+    
+    
+    group_access.add_argument('-U', '--userid', help='Specify a userid to use on CICS', dest='userid')
+    group_access.add_argument('-P', '--password', help='Specify a password for the userid', dest='password')
+    group_access.add_argument('-r', help='Given the region user ID, checks wether you are allowed to use it to submit JOBs', default=False,dest='propagate_user')
+    group_access.add_argument('-g', help='Checks wether you can impersonate another user when submitting a job', default=False,dest='surrogat_user')
+    
+    
+    
+    
+    group_job.add_argument('-s','--submit',help='Submit JCL to CICS server. Specify: dummy,reverse_unix, reverse_tso, direct_unix, reverse_unix, ftp or custom (need -j option)',dest='submit')
+    group_job.add_argument('--queue',help='Provides the name of the TD queue to submit a JOB',dest='queue')
+    group_job.add_argument('--ftp-cmds',help='Files containig a list of ftp commands to execute',dest='ftp_cmds')
+    group_job.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
+    group_job.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
+    group_job.add_argument('--port',help='Remote port to open for bind shell in REXX',dest='port')
+    group_job.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
+    
+    
+    
     results = parser.parse_args()
     
     if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl and (results.submit.find("direct")< 0)):
