@@ -48,9 +48,7 @@ DO_AUTHENT = False
 #   Distinguish VTAM authentication from CICS authentication
 #   Query security with any class and resource
 #   CEDA VIEW CON
-#   CEDA define files and transactions
-#   Add groups in the help menu
-
+#   CEDA install files and transactions
 
 
 
