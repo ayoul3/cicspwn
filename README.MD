@@ -46,6 +46,8 @@ Information gathering:
                         get (default is "*")
   -q, --quiet           Remove Trailing and journal before performing any
                         action
+  --ceci CECI           CECI new transaction name. Result of -i option.
+  --cemt CEMT           CEMT new transaction name. Result of -i option.
 
 Storage options:
   -f, --files           List all installed files a on TS CICS
