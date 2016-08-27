@@ -1555,7 +1555,7 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     
     method = None
     token = open_spool()
-    token = None
+    #token = None
     if token:
          method = "spool"
     elif not token and check_tdqueue():
