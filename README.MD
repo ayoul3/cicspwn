@@ -93,6 +93,7 @@ JOB options:
 ```
 ## Prerequisites
 3270 Python library [py3270](https://pypi.python.org/pypi/py3270/0.2.0)
+x3270, s3270 or wc3270.exe installed on your sytem  
 
 ## Getting general information
 ```
@@ -181,7 +182,7 @@ root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -s reverse_tso -l 1
 ```
 
 ## Copyright and license  
-cicsPWN is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.  
+CICSpwn is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.  
 CICSpwn is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
 See the GNU General Public License for more details.
 
