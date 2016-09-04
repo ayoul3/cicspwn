@@ -93,8 +93,8 @@ JOB options:
                         line continuation must be present in the file
 
 ```
-## Prerequisites
-3270 Python library [py3270](https://pypi.python.org/pypi/py3270/0.2.0)
+## Prerequisites 
+3270 Python library [py3270](https://pypi.python.org/pypi/py3270/0.2.0)  
 x3270, s3270 or wc3270.exe installed on your sytem  
 
 ## Getting general information
