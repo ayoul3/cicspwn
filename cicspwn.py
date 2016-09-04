@@ -437,10 +437,10 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
         i +=1;
     data = em.screen_get()
         
-    if "NOT AUTHORIZED" in data[2]:
+    if "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
         whine("Not authorized to issue "+request+", try --bypass switch to bypass RACF",'err')
         return None
-        
+    
     for d in data:
        if pattern in d:
            pos= d.find(pattern) + len(pattern)
@@ -545,7 +545,9 @@ def get_users():
     if "NOT AUTHORIZED" in data[2]:
         whine ("CEMT I TASK not authorized", 'err')
         return None
-        
+    elif "DFHAC2002" in data[22]:
+        whine('Cannot access CEMT to list active users, try --bypass switch','err') 
+        return None
     for d in data:
        if "Use" in d:
            pos= d.find("Use(") + len("Use(")
@@ -940,6 +942,12 @@ def fetch_tsq_item(tsq_name, item):
         
     em.safe_send(req_read)
     em.send_enter()
+    
+    data = em.screen_get()
+    
+    if "DFHAC2002" in data[22]:
+        whine("Cannot access CECI to fetch tsqueue's content, try --bypass switch to bypass RACF",'err')    
+        sys.exit()
     em.send_enter() # Send twice Enter to confirm transaction
     
     data = em.screen_get()
@@ -988,6 +996,9 @@ def get_tsq_content():
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     data = em.screen_get()
+    if "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
+        whine("Cannot access CEMT to list TSQueues, try --bypass switch to bypass RACF",'err')    
+        
     for d in data:
        if tsq_name.upper() in d and "I TSQ" not in d:
           items = int(d[29:34].strip())
@@ -1013,10 +1024,15 @@ def fetch_content(filename, ridfld, keylength):
     if int(ridfld)==0:
         req_read = CECI+' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
     else:
-        req_read = 'READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+        req_read = ' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
         
     em.safe_send(req_read)
     em.send_enter()
+    data = em.screen_get()
+    if "DFHAC2002" in data[22]:
+        whine('Cannot access CECI, try --bypass to bypass RACF','err')
+        sys.exit()   
+        
     em.send_enter() # Send twice Enter to confirm transaction
     
     data = em.screen_get()
@@ -1078,47 +1094,53 @@ def get_file_content():
     else:
         whine("File "+results.filename+" is lacking attributes to be readable. Changing that via CEMT", 'info')
         em.move_to(1,2)
-        req_set_file = 'Set READ FI('+filename.upper()+') ENA OPE'
+        req_set_file = CEMT+' Set READ FI('+filename.upper()+') ENA OPE'
         em.safe_send(format_request(req_set_file))
         em.send_enter()
         data = em.screen_get()
         if "NORMAL" in data[22]:
             whine("File "+results.filename+" is enabled, open, and readable", 'good')
+        elif "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
+            whine("Cannot access CEMT to change file attributes, try --bypass switch to bypass RACF",'err')
         else:
             whine('Cannot change file attributes','err')
             whine(data[22],'err')
     # getting key length and record size. Can only do when then the file is enabled and opened
     em.move_to(1,2)
-    req_list_file = 'I READ FI('+filename.upper()+')'
+    req_list_file = ' I READ FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     
-    # Display more info about the file
-    em.move_to(3,5)
-    em.send_enter()
-    
-    em.send_pf11()
-    
     data = em.screen_get()
-    for d in data:
-        pos1 = d.find("Keylength( ")
-        pos2 = d.find("Recordsize( ")
-        if pos1 > -1:
-            pos1 = pos1 + len("Keylength( ")
-            keylength = int(d[pos1:pos1+3])
-        if pos2 > -1:
-            pos2 = pos2 + len("Recordsize( ")
-            recordsize = int(d[pos2:pos2+5])
-        
-    if keylength != 0 and recordsize !=0:
-        whine("Record size: "+str(recordsize)+"\tkeylength:"+str(keylength), 'good')
+    if "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
+       whine("Cannot access CEMT to get get key and record length (defaults will be used rsize=80, klen=6), try --bypass switch to bypass RACF",'err')
     else:
-        whine("Could not get record size and keylength size, default values will be used (rsize = 80, klen=6)", 'err')
-        keylength = 6
-        recordsize = 80
-    
+        # Display more info about the file
+        em.move_to(3,5)
+        em.send_enter()
+        
+        em.send_pf11()
+        
+        data = em.screen_get()
+        for d in data:
+            pos1 = d.find("Keylength( ")
+            pos2 = d.find("Recordsize( ")
+            if pos1 > -1:
+                pos1 = pos1 + len("Keylength( ")
+                keylength = int(d[pos1:pos1+3])
+            if pos2 > -1:
+                pos2 = pos2 + len("Recordsize( ")
+                recordsize = int(d[pos2:pos2+5])
+            
+        if keylength != 0 and recordsize !=0:
+            whine("Record size: "+str(recordsize)+"\tkeylength:"+str(keylength), 'good')
+        else:
+            whine("Could not get record size and keylength size, default values will be used (rsize = 80, klen=6)", 'err')
+            keylength = 6
+            recordsize = 80
+        
     # Exit CEMT utility
-    em.send_pf3()
+    em.send_pf3()    
     
     next_ridfld = 0;
     
@@ -1475,6 +1497,10 @@ def set_mixedCase():
     em.send_enter()
     
     data = em.screen_get()
+    if "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
+        whine("Cannot access CEMT to get terminal ID, try --bypass switch to bypass RACF",'err')
+            
+    
     for d in data:
         termID = None
         if "Fac(" in d and CEMT in d:
@@ -1493,6 +1519,12 @@ def set_mixedCase():
     req_set_term = CECI+' SET TERM('+termID+') NOUCTRAN'
     em.safe_send(format_request(req_set_term))
     em.send_enter()
+    
+    data = em.screen_get()    
+    if "DFHAC2002" in data[22]:
+        whine("Cannot access CECI to set terminal to mixed case, try --bypass switch to bypass RACF",'err')
+        return False
+    
     em.send_enter()
     if "NORMAL" in data[22]:
       whine('Current terminal is NOW mixed case','good',1)
@@ -1519,7 +1551,7 @@ def open_spool():
     
     data = em.screen_get()
     if "DFHAC2002" in data[22] and "CECI" in data[22]:
-        whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
+        whine("Cannot access CECI to open a spool, try --bypass switch to bypass RACF",'err')
         sys.exit()
        
     em.send_enter()
@@ -1854,7 +1886,10 @@ def activate_transaction(ena_trans):
         em.safe_send(format_request(req_list_trans))
         em.send_enter()
    
-        data = em.screen_get()    
+        data = em.screen_get()
+        if "DFHAC2002" in data[22]:
+            whine('Cannot access CEMT to activate transactions, try --bypass switch','err')
+            sys.exit()
         if "Ena " in data[2]:
             whine("Transaction "+ena_trans+" is already enabled", 'good')
             sys.exit();
