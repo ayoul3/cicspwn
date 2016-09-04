@@ -49,7 +49,6 @@ CEMT = "CEMT"
 # TO DO:
 
 
-#   Bypass RACF switch
 #   Query security with any class and resource
 #   Distinguish VTAM authentication from CICS authentication
 #   Write a CICS SHELL in COBOL
@@ -2245,7 +2244,7 @@ if __name__ == "__main__" :
        sys.exit();
        
     if results.check_files and not os.path.isfile(results.check_files) :
-       whine('Unable to open the file '+results.check_trans,'err');
+       whine('Unable to open the file '+results.check_files,'err');
        sys.exit();
        
     if results.submit=="custom" and not results.jcl:
