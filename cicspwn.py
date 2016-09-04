@@ -49,7 +49,7 @@ CEMT = "CEMT"
 # TO DO:
 
 
-#   Check access to files and transactions
+#   Bypass RACF switch
 #   Query security with any class and resource
 #   Distinguish VTAM authentication from CICS authentication
 #   Write a CICS SHELL in COBOL
@@ -615,7 +615,7 @@ def get_infos():
        
     whine("Interesting and available IBM supplied transactions: ", 'info')
     if query_cics('CEMT','Inquire',5):
-      is_cemt = True
+      is_cemt = False
       em.send_pf3()
       whine("CEMT", 'good',1)
     
