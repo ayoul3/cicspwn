@@ -201,7 +201,7 @@ See the GNU General Public License for more details.
 You should have received a copy of the GNU General Public License along with nmaptocsv. If not, see http://www.gnu.org/licenses/.
 
 ## Credit
-The REXX code of the direct/reverse shell was mainly inspired by the work of [@mainframed767](https://github.com/mainframed/Mainframed)
+The REXX code of the direct/reverse shell was mainly inspired by the work of [@mainframed767](https://github.com/mainframed/Mainframed)  
 Py3270 wrapper class was provided by [@singe](https://github.com/sensepost/birp)
 
 ## Contact
