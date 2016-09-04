@@ -378,14 +378,17 @@ def get_cics_value(request, identifier, double_enter=False):
         sys.exit()
     
     em.safe_send(format_request(request))
+    
     em.send_enter()
     
     if double_enter:
         em.send_enter()
-    
+        
     sleep(SLEEP)
+    
     em.send_pf5()
     data = em.screen_get()
+    
     j=5; out = []
     for i in identifier :
        out.append(data[j][23:].strip())
@@ -1899,6 +1902,19 @@ def check_propagate(propagate_user):
     else:
         whine(propagate_user+' not defined in PROPCNTL. It can submit JOBS','good',0)
 
+def check_resources(kind, trans):
+    """
+        use CECI QUERY Security to check availability of a list of resources
+    """
+    cvda = {"+0000000035":"read","+0000000037":"update", "+0000000036":"no read","+0000000038":"no update"}
+    for t in trans:
+        variables = ["READ", 'UPDATE']
+        results = get_cics_value(CECI+' QUERY SECURITY REST('+kind+') RESID('+t.strip()+')', variables, True)
+        if results[0] in cvda.keys() and results[1] in cvda.keys():
+            print t.strip()+'\t'+cvda[results[0]]+'\t'+cvda[results[1]]
+        else:
+            print t.strip()+'\t'+'error'+'\t'+'error'
+    
     
 def main(results):
     global DO_AUTHENT
@@ -1988,6 +2004,15 @@ def main(results):
             
         activate_transaction(results.ena_trans)
         
+    elif results.check_trans:
+        f = open(results.check_trans,'r')
+        trans = f.readlines();
+        check_resources('TRANSATTACH', trans)
+    elif results.check_files:
+        f = open(results.check_files,'r')
+        trans = f.readlines();
+        check_resources('FILE', trans)
+    
     elif results.submit:
         submit_job(results.submit,results.lhost)
 
@@ -2071,6 +2096,7 @@ if __name__ == "__main__" :
     
     group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
     group_trans.add_argument('--enable-trans', help='Enable a transaction (keyword ALL to enable every transaction) ',dest='ena_trans')
+    group_trans.add_argument('--check-trans', help='Checks security access to the transactions specified in <file.txt>',dest='check_trans')
     
     
     group_storage.add_argument('-f','--files', help='List all installed files a on TS CICS',action='store_true',default=False,dest='files')
@@ -2078,6 +2104,7 @@ if __name__ == "__main__" :
     group_storage.add_argument('--get-file', help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
     group_storage.add_argument('--get-tsq', help='Get the content of a temporary storage queue. ',dest='tsq_name')
     group_storage.add_argument('--enable-files', help='Enable a file (keyword ALL to enable every file) ',dest='ena_files')    
+    group_trans.add_argument('--check-files', help='Checks security access to the files specified in <file.txt>',dest='check_files')
     
     
     group_access.add_argument('-U', '--userid', help='Specify a userid to use on CICS', dest='userid')
@@ -2099,11 +2126,19 @@ if __name__ == "__main__" :
     
     results = parser.parse_args()
     
+    if results.check_trans and not os.path.isfile(results.check_trans) :
+       whine('Unable to open the file '+results.check_trans,'err');
+       sys.exit();
+       
+    if results.check_files and not os.path.isfile(results.check_files) :
+       whine('Unable to open the file '+results.check_trans,'err');
+       sys.exit();
+       
     if results.submit=="custom" and not results.jcl:
        whine('use --jcl option to input path of JCL to submit','err');
        sys.exit();
        
-    if results.submit.find("rexx") > -1 and not results.rexx_file:
+    if results.submit and results.submit.find("rexx") > -1 and not results.rexx_file:
        whine('use --rexx option to input path of REXX to submit','err');
        sys.exit();
        
@@ -2111,11 +2146,11 @@ if __name__ == "__main__" :
        whine('Cannot access file '+results.jcl,'err');
        sys.exit();
        
-    if results.submit.find("rexx") > -1 and not os.path.isfile(results.rexx_file) :
+    if results.submit and results.submit.find("rexx") > -1 and not os.path.isfile(results.rexx_file) :
        whine('Cannot access file '+results.rexx_file,'err');
        sys.exit();
        
-    if ((results.submit.find("reverse") >-1) and (results.lhost == None or len(results.lhost.split(":")) < 2)):
+    if (results.submit and (results.submit.find("reverse") >-1) and (results.lhost == None or len(results.lhost.split(":")) < 2)):
         whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
         sys.exit()      
 
