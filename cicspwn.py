@@ -361,10 +361,10 @@ def query_cics(request, verify, line):
         
     data = em.screen_get()
 
-    if "DFHAC2002" in data[22] and "CECI" in data[22]:
+    if len(request) > 4 and "DFHAC2002" in data[22] and "CECI" in data[22]:
         whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
         sys.exit()
-    if "DFHAC2002" in data[22] and "CEMT" in data[22]:
+    if len(request) > 4 and "DFHAC2002" in data[22] and "CEMT" in data[22]:
         whine("Cannot access CEMT, try --bypass switch to bypass RACF",'err')
         sys.exit()
         
@@ -467,7 +467,7 @@ def send_cics(request, double=False):
     em.safe_send(format_request(request))
     em.send_enter()
     data = em.screen_get()
-    
+        
     if "DFHAC2002" in data[22] and "CECI" in data[22]:
         whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
         sys.exit()
