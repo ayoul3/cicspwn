@@ -47,15 +47,13 @@ CECI = "CECI"
 CEMT = "CEMT"
 
 # TO DO:
-
-
+#   Remove that heresy in CICS ESM check
+#   C file
 #   Query security with any class and resource
 #   Distinguish VTAM authentication from CICS authentication
 #   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
 #   CEDA install files and transactions
-#   C file
-
 
 
 class bcolors:
@@ -307,12 +305,15 @@ def check_valid_applid(applid, do_authent, method = 1):
         pos_pass=1;
         data = em.screen_get()   
         for d in data:
-            if "Password" in d or "Code" in d or "passe" in d:
+            d = d.lower()
+            if "password " in d or "code " in d or "passe " in d:
                 break;
             else:
                pos_pass +=1
             if pos_pass > 23:
                 whine("Could not find a password field. Was looking for \"password\", \"code\" or \"pass\" strings",'err')
+                whine("dumping screen. If it lags it's an empty screen",'err')
+                show_screen();
                 sys.exit();
         
         do_authenticate(results.userid, results.password, pos_pass)
