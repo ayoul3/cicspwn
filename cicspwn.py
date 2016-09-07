@@ -2031,23 +2031,23 @@ def main(results):
     global CEMT
     global CECI       
     
-    #~ if (results.userid != None and results.password !=None):
+    if (results.userid != None and results.password !=None):
        
-       #~ DO_AUTHENT = True
-       #~ data = em.screen_get()   
-       #~ pos_pass=1;
-       #~ logon_screen=False
+       DO_AUTHENT = True
+       data = em.screen_get()   
+       pos_pass=1;
+       logon_screen=False
        
-       #~ for d in data:
-         #~ if "Password" in d or "Code" in d:
-           #~ logon_screen=True
-           #~ break
-         #~ else:
-           #~ pos_pass +=1
-       #~ if logon_screen:
-           #~ do_authenticate(results.userid, results.password, pos_pass)
-           #~ whine("Successful authentication", 'info')
-           #~ AUTHENTICATED = True;
+       for d in data:
+         if "Password" in d or "Code" in d:
+           logon_screen=True
+           break
+         else:
+           pos_pass +=1
+       if logon_screen:
+           do_authenticate(results.userid, results.password, pos_pass)
+           whine("Successful authentication", 'info')
+           AUTHENTICATED = True;
         
      
     # Assigning new transaction names to CECI and CEMT if need be
