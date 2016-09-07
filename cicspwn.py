@@ -41,8 +41,6 @@ from py3270 import Emulator,CommandError,FieldTruncateError,TerminatedError,Wait
 
 TRAN_NUMBER = 1000
 SLEEP = 0.5
-AUTHENTICATED = False
-DO_AUTHENT = False
 CECI = "CECI"
 CEMT = "CEMT"
 
@@ -104,7 +102,7 @@ class EmulatorIntermediate(Emulator):
 	def screen_get(self):
 		response = self.exec_command('Ascii()')
 		if ''.join(response.data).strip() == "":
-		    sleep(0.3)
+		    sleep(0.5)
 		    return self.screen_get()
 		return response.data
 
@@ -289,6 +287,8 @@ def do_authenticate(userid, password, pos_pass):
    elif any("Your password is invalid" in s for s in data):
       whine('Incorrect password information','err')
       sys.exit()
+   elif "DFHCE3549" in data[23]:
+      return True
     
 def check_valid_applid(applid, do_authent, method = 1):
     """
@@ -296,26 +296,34 @@ def check_valid_applid(applid, do_authent, method = 1):
        authentication, it calls do_authenticate()
        If CICS appid is valid, it tries to access the CICS terminal
     """
+        
+    em.safe_send(applid) #CICS APPLID in VTAM
+    data = em.screen_get()
+    em.send_enter()
     
-    em.send_string(applid) #CICS APPLID in VTAM
-    em.send_enter()   
-    sleep(SLEEP)
+    data = em.screen_get()
+    
+    if any("Invalid Command" in d for d in data):
+        whine('Invalid APPLID "'+applid+'"','err');
+        sys.exit()
+    
+    if any("Command is in progress" in d for d in data):
+        whine("Waiting for VTAM command completion",'warn')
+        sleep(1.3)        
     
     if do_authent:
         pos_pass=1;
         data = em.screen_get()   
         for d in data:
-            d = d.lower()
-            if "password " in d or "code " in d or "passe " in d:
+            if "Password " in d or "Code " in d or "passe " in d:
                 break;
             else:
                pos_pass +=1
             if pos_pass > 23:
                 whine("Could not find a password field. Was looking for \"password\", \"code\" or \"pass\" strings",'err')
-                whine("dumping screen. If it lags it's an empty screen",'err')
-                show_screen();
+                for d in data:
+                    print d
                 sys.exit();
-        
         do_authenticate(results.userid, results.password, pos_pass)
         whine("Successful authentication",'good')
     
@@ -667,7 +675,7 @@ def get_infos():
     is_cemt = False
     is_ceci = False
     is_cecs = False
-    is_ceda = True
+    is_ceda = False
     is_cedf = True
     is_cebr = False
     userid = ''
@@ -2026,14 +2034,15 @@ def check_resources(kind, trans):
     
     
 def main(results):
-    global DO_AUTHENT
-    global AUTHENTICATED
     global CEMT
     global CECI       
     
+    do_authent = False
+    sleep(SLEEP)
+    
     if (results.userid != None and results.password !=None):
        
-       DO_AUTHENT = True
+       do_authent = True
        data = em.screen_get()   
        pos_pass=1;
        logon_screen=False
@@ -2046,16 +2055,14 @@ def main(results):
            pos_pass +=1
        if logon_screen:
            do_authenticate(results.userid, results.password, pos_pass)
-           whine("Successful authentication", 'info')
-           AUTHENTICATED = True;
-        
-     
+           whine("Successful authentication", 'good')
+       
     # Assigning new transaction names to CECI and CEMT if need be
     CEMT = results.cemt
     CECI = results.ceci
     
     # Checking if APPLID provided is valid
-    if not check_valid_applid(results.applid, DO_AUTHENT):
+    if not check_valid_applid(results.applid, do_authent):
         whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
         sys.exit()
     
