@@ -122,7 +122,7 @@ class EmulatorIntermediate(Emulator):
 			self.move_to(ypos, xpos)
 		try:
 			self.delete_field()
-			if safe_send(self, tosend):
+			if self.safe_send(tosend):
 				return True # Hah, we win, take that mainframe
 			else:
 				return False # we entered what we could, bailing
