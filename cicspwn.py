@@ -46,14 +46,11 @@ CEMT = "CEMT"
 CAT3_TRANS = ["CSRK","CSRS","CSAC","CQPO","CQRY","CPSS"]
 
 # TO DO:
-#   Bypass on demad
-#   Update a file/TSQueue
-#   upload C code
-#   Query security with any class and resource
-#   Distinguish VTAM authentication from CICS authentication
+#   Verbose mode
 #   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
-#   CEDA install files and transactions
+#   Update a file/TSQueue
+#   Distinguish VTAM authentication from CICS authentication
 
 
 class bcolors:
@@ -377,8 +374,9 @@ def query_cics(request, verify, line):
         whine("Cannot access CEMT, try --bypass switch to bypass RACF",'err')
         sys.exit()
         
-    if verify in data[line-1].strip():
-        return True
+    for v in verify:
+        if v in data[line-1].strip():
+            return True
     else:
         return False
 
@@ -490,7 +488,8 @@ def send_cics(request, double=False):
     
     if "RESPONSE: NORMAL" in data[22]:
         return True
-    
+    elif "RESPONSE: NOSPOOL" in data[22]:
+        return False
     else:
         whine('Error:' + data[22],'err')
         return False
@@ -573,6 +572,18 @@ def get_version():
    if version:
      version = version.strip("0").replace("0",".")
    return version
+
+def get_os_version():
+   """
+      Called by get_infos(). retrieves current version of zOS
+    """
+   version = query_cics_scrap(CEMT+" I SYS", "Oslevel(", 6, 0, 0 )
+   if version:
+     version = version.strip("0").replace("0",".")
+     if len(version)==3 and version[1] !=".":
+         version = version[0]+"."+version[1:]
+         
+   return version
         
 def get_default_user():
    """
@@ -585,7 +596,7 @@ def get_max_tasks():
    """
       Called by get_infos(). retrieves the maximum number of concurrent tasks
     """
-   default_user = query_cics_scrap(CEMT+" I SYS", "Maxtasks( ", 3, 0, 0 )
+   default_user = query_cics_scrap(CEMT+" I SYS", "Maxtasks( ", 4, 0, 0 )
    return default_user     
 
 def activate_supplied(old_name, old_group, new_name, new_group):
@@ -686,33 +697,36 @@ def get_infos():
     spool, tdqueue, tdqueue2 = None, None,None
        
     whine("Interesting and available IBM supplied transactions: ", 'info')
-    if query_cics(CEMT,'Inquire',5):
+    if query_cics(CEMT,['Inquire'],5):
         is_cemt = True
         em.send_pf3()
         whine("CEMT", 'good',1)
     
-    if query_cics('CEDA','ALter',5):
+    if query_cics('CEDA',['ALter'],5):
         is_ceda = True
         em.send_pf3()        
         whine("CEDA", 'good',1)
     
-    if query_cics(CECI,'ACquire',5):
+    if query_cics(CECI,['ACquire','DELETEQ'],5):
         is_ceci = True
-        em.send_pf3()
+        em.send_pf3()        
         whine("CECI", 'good',1)
-    if query_cics('CECS','ACquire',5):
+    
+    if query_cics('CECS',['ACquire','DELETEQ'],5):
         is_cecs = True
         em.send_pf3()
         whine("CECS", 'good',1)
-    if query_cics('CEDF ,OFF','EDF MODE OFF',1):
+    
+    if query_cics('CEDF ,OFF',['EDF MODE OFF'],1):
         is_cedf = True
         em.send_pf3()
         whine("CEDF", 'good',1)
-    if query_cics('CEBR','ENTER COMMAND',2):
+    
+    if query_cics('CEBR',['ENTER COMMAND'],2):
         is_cebr = True
         em.send_pf3()
         whine("CEBR", 'good',1)
-        
+            
     em.send_clear()
     
         
@@ -735,8 +749,13 @@ def get_infos():
                 is_cemt = True
                 whine("CEMT is available under the transaction name CSPS. Please specify --cemt=CSPS in every future command",'good',1)
     
-    
+   
     whine("General system information: ", 'info')
+    
+    os_version = get_os_version()
+    if os_version:
+         whine("z/OS version: "+os_version, 'good',1)
+    
     version = get_version()
     if version :
        whine("CICS TS Version: "+version, 'good',1)
@@ -746,6 +765,7 @@ def get_infos():
     if default_user :
        whine("CICS default user: "+default_user, 'good',1)
     
+         
     max_tasks = get_max_tasks()
     if max_tasks:
         whine("CICS max tasks: "+max_tasks, 'good',1)
@@ -793,7 +813,7 @@ def get_infos():
     if spool:
         whine('Access to the internal spool is apparently available','good',1)
               
-    if not spool and not tdqueue:
+    if not spool and (not tdqueue or tdqueue =="*") and (not tdqueue2 or tdqueue2=="*"):
         whine('No way to submit JCL through this CICS region','err',1)
     
     whine("Access control", 'info')
@@ -802,7 +822,7 @@ def get_infos():
     if (query_cics('CESN', 'Signon to CICS', 1)):
         whine('CICS uses an ESM (RACF/ACF2/TopSecret), might be tricky to access some functions','info',1)
     else:
-        whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1) 
+        whine('CICS does not use RACF/ACF2/TopSecret','good',1) 
         
     #~ variables = ["READ"]
     #~ read = get_cics_value('QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
