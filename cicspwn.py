@@ -46,10 +46,10 @@ CEMT = "CEMT"
 CAT3_TRANS = ["CSRK","CSRS","CSAC","CQPO","CQRY","CPSS"]
 
 # TO DO:
-#   Verbose mode
+#   Update/add item to tsqueue
+#   Verbose mode
 #   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
-#   Update a file/TSQueue
 #   Distinguish VTAM authentication from CICS authentication
 
 
@@ -1044,9 +1044,13 @@ def get_tsq_content():
     
     em.send_pf3() 
     em.move_to(1,2)
-    while current_item <= items:
-       print fetch_tsq_item(tsq_name, current_item)
-       current_item +=1
+    if (results.item):
+        whine("Fetching item "+results.item+" from TSqueue "+tsq_name,"info")
+        fetch_tsq_item(tsq_name, results.item)
+    else:
+        while current_item <= items:
+           print fetch_tsq_item(tsq_name, current_item)
+           current_item +=1
 
 def fetch_content(filename, ridfld, keylength):
     """
@@ -1054,12 +1058,9 @@ def fetch_content(filename, ridfld, keylength):
         ridfld is they index key in a VSAM file
     """
     em.move_to(1,2)
-    
-    if int(ridfld)==0:
-        req_read = CECI+' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
-    else:
-        req_read = ' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
-        
+
+    req_read = CECI+' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+            
     em.safe_send(req_read)
     em.send_enter()
     data = em.screen_get()
@@ -1070,7 +1071,10 @@ def fetch_content(filename, ridfld, keylength):
     em.send_enter() # Send twice Enter to confirm transaction
     
     data = em.screen_get()
-    if "NORMAL" not in data[22]:
+    if "NOTFND" in data[22]:
+        whine("No more records in the file",'info')
+        sys.exit();
+    elif "NORMAL" not in data[22]:
         whine(data[22],'err')
         sys.exit()   
     
@@ -1089,15 +1093,122 @@ def fetch_content(filename, ridfld, keylength):
     em.send_enter()
     
     data = em.screen_get()
+   
     out = ""
     for d in data:        
       if d.find("+00") < 5 and d.find("+00") > -1:
-         out += d[11:]
-    print out
+         out += d[10:].strip()
+    
+    print out[0:keylength]+"\t"+out[keylength:]
     
     return out[0:keylength]
     
-def get_file_content():
+def change_file_attributes(filename, attr):
+    em.move_to(1,2)
+    req_set_file = CEMT+' Set READ FI('+filename.upper()+') '+attr
+    em.safe_send(format_request(req_set_file))
+    em.send_enter()
+    data = em.screen_get()
+    
+    if "NORMAL" in data[22]:
+        if "OPEN" in attr:
+            whine("File "+filename+" is "+attr, 'good')
+    elif "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
+        whine("Cannot access CEMT to change file attributes, try --bypass switch to bypass RACF",'err')
+    else:
+        whine('Cannot open/enable/read or update the file. Might not exist on disk','err')
+        whine(data[22],'err')
+
+def update_content(filename, ridfld, content_file):
+    em.move_to(1,2)
+    req_read = CECI+' READ FI('+filename.upper()+') RID('+str(ridfld)+') UPDATE TOKEN(&TOK5)'
+            
+    em.safe_send(req_read)
+    em.send_enter()    
+    
+    em.send_enter() # Send twice Enter to confirm transaction
+    data = em.screen_get();
+    if not "NORMAL" in data[22]:
+        whine("Error while requesting a hold on the file for update",'err')
+        whine(data[22],'err')
+    
+    em.move_to(1,2)    
+    req_read = CECI+' REWRITE FI('+filename.upper()+') TOKEN(&TOK5) FROM(&SQLKHDS)'
+            
+    em.safe_send(req_read)
+    em.send_enter()    
+    em.send_enter() # Send twice Enter to confirm transaction
+    show_screen();
+    if "NORMAL" in data[22]:
+        whine("record "+ridfld+" updated successfully",'good')
+    else:
+        whine("Error while requesting a hold on the file for update",'err')
+        whine(data[22],'err')
+        
+    
+def add_content(filename, ridfld, content_file):
+    """
+        Gets the record ridfld in a file.
+        ridfld is they index key in a VSAM file
+    """
+    # Go the variable screen
+    f = open(content_file,"r")
+    if not f:
+        whine("Could not open file "+data,'err');
+        sys.exit()
+    content = (''.join(f.readlines())).replace('\n','').replace('\r','')
+    content = ridfld+content
+    
+    em.move_to(1,2)
+    em.safe_send(format_request("CECI"))
+    em.send_enter()
+    data = em.screen_get()
+    if "DFHAC2002" in data[22]:
+        whine('Cannot access CECI, try --bypass to bypass RACF','err')
+        sys.exit()   
+        
+    em.send_pf5()
+            
+    em.move_to(7,2)
+    em.send_eraseEOF()
+    em.send_enter()
+
+    def_var = "&SQLKHDS  +"+str(len(content))
+    em.safe_send(def_var)
+    em.send_enter()
+    
+    em.move_to(7,2)
+    em.send_enter()
+    k= 0;
+    while k < len(content):
+      em.move_to((k/64)+3,11)
+      em.safe_send(content[k:k+64])
+      k+=64
+    em.send_enter
+    
+    # back to the normal screen
+    em.send_enter()
+    em.move_to(1,2)
+    
+    
+    em.move_to(1,2)
+    req_write = CECI+' WRITE FI('+filename.upper()+') RI('+str(ridfld)+') FROM(&SQLKHDS)'
+            
+    em.safe_send(req_write)
+    em.send_enter()        
+    em.send_enter() # Send twice Enter to confirm transaction
+   
+    data = em.screen_get();
+    if "NORMAL" in data[22]:
+        whine("item "+ridfld+" was added successfully to file "+filename,'good')
+    elif "DUPREC" in data[22]:
+        whine('Found record '+ridfld+', will proceed with the update','info')
+        update_content(filename, ridfld, content_file)
+    else:
+        whine("Error while updating the record "+ridfld,'err')
+        whine(data[22],'err')
+    
+def handle_file_content(filename, kind="read"):
     """
         If the file is closed or disabled, it activates it before retrieving its content
     """
@@ -1106,10 +1217,10 @@ def get_file_content():
     em.send_clear()
     em.move_to(1,2)
     
-    if len(results.filename) > 8:
+    if len(filename) > 8:
        whine('Filename cannot be over 8 characters, Name will be truncated','err')
     
-    filename = results.filename[:8]
+    filename = filename[:8]
     ridfld = "000000";
     
     ## get file properties ##
@@ -1121,27 +1232,27 @@ def get_file_content():
         file_opened = True
     if "Ena " in data[2]:
         file_enabled = True
-    if "Rea " in data[2]:
-        file_readable = True
-    if file_readable and file_enabled and file_opened:
-        whine("File "+results.filename+" is enabled, open, and readable", 'good')
+    
+    if file_enabled and file_opened:
+        whine("File "+filename+" is enabled and open", 'good')
     else:
-        whine("File "+results.filename+" is lacking attributes to be readable. Changing that via CEMT", 'info')
-        em.move_to(1,2)
-        req_set_file = CEMT+' Set READ FI('+filename.upper()+') ENA OPE'
-        em.safe_send(format_request(req_set_file))
-        em.send_enter()
-        data = em.screen_get()
-        if "NORMAL" in data[22]:
-            whine("File "+results.filename+" is enabled, open, and readable", 'good')
-        elif "NOT AUTHORIZED" in data[2] or "DFHAC2002" in data[22]:
-            whine("Cannot access CEMT to change file attributes, try --bypass switch to bypass RACF",'err')
+        whine("File "+filename+" is lacking attributes to be readable. Changing that via CEMT", 'info')
+        if not file_enabled:
+            change_file_attributes(filename,'CLOSED')
+        elif not file_opened:
+            change_file_attributes(filename,'DISABLED')
+        
+        if kind=="update":
+            change_file_attributes(filename,'ENABLED OPEN ADD UPDATE')
         else:
-            whine('Cannot change file attributes','err')
-            whine(data[22],'err')
+            change_file_attributes(filename,'ENABLED OPEN READ')
+        #if not file_opened:
+        #    change_file_attributes(filename,'OPE')
+        #    show_screen()
+            
     # getting key length and record size. Can only do when then the file is enabled and opened
     em.move_to(1,2)
-    req_list_file = ' I READ FI('+filename.upper()+')'
+    req_list_file = CEMT+' I READ FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     
@@ -1175,15 +1286,22 @@ def get_file_content():
         
     # Exit CEMT utility
     em.send_pf3()    
-    
-    next_ridfld = 0;
-    
-    while int(next_ridfld) != -1 and int(next_ridfld) < 1000000:
-       ridfld = next_ridfld
-       
-       next_ridfld = fetch_content(filename, ridfld, keylength)
-       next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
-                
+    if kind=="read":
+        if (results.item):
+            whine("Fetching item "+results.item+" from file "+filename,"info")
+            fetch_content(filename, results.item, keylength)
+        else:        
+            next_ridfld = 0;
+            
+            while int(next_ridfld) != -1 and int(next_ridfld) < 1000000:
+               ridfld = next_ridfld
+               
+               next_ridfld = fetch_content(filename, ridfld, keylength)
+               next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
+    elif kind=="add":
+            whine("Adding record "+results.item+" of file "+filename, 'info')
+            add_content(filename, results.item, results.data)
+            
 def dummy_jcl(lhost):
     """
         PoC that executes an FTP to verify Job submission and network filtering
@@ -2080,6 +2198,7 @@ def copy_tran(old_tran, new_tran):
     
     activate_supplied(old_tran,group,new_tran,"BBBB")
     
+        
 def main(results):
     global CEMT
     global CECI       
@@ -2154,7 +2273,10 @@ def main(results):
         
     elif results.filename:
         whine("Getting Attributes of file "+results.filename, 'info')
-        get_file_content()
+        handle_file_content(results.filename, "read")
+        
+    elif results.filename_add:
+        handle_file_content(results.filename_add, "add")
     
     elif results.tsq_name:
         whine("Getting content of TSQeueue "+results.tsq_name, 'info')
@@ -2283,6 +2405,9 @@ if __name__ == "__main__" :
     group_storage.add_argument('-e','--tsqueues', help='List all temporary storage queues on TS CICS',action='store_true',default=False,dest='tsqueues')
     group_storage.add_argument('--get-file', help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
     group_storage.add_argument('--get-tsq', help='Get the content of a temporary storage queue. ',dest='tsq_name')
+    group_storage.add_argument('--add-item', help='Add an item (--num) in FILE',dest='filename_add')
+    group_storage.add_argument('--num', help='# item to read/add/update from a file or TSQueue',dest='item')
+    group_storage.add_argument('--data', help='file containing new data to update the file',dest='data')
     group_storage.add_argument('--enable-files', help='Enable a file (keyword ALL to enable every file) ',dest='ena_files')    
     group_trans.add_argument('--check-files', help='Checks security access to the files specified in <file.txt>',dest='check_files')
     
@@ -2333,7 +2458,16 @@ if __name__ == "__main__" :
     if (results.submit and (results.submit.find("reverse") >-1) and (results.lhost == None or len(results.lhost.split(":")) < 2)):
         whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
         sys.exit()      
-
+    if results.filename_add:
+        if  not results.item:
+            whine("Please specify which record to add (--num)",'err')
+            sys.exit()
+        if  not results.data:
+            whine("Please specify a source file to read data from (--data)",'err')
+        elif not os.path.isfile(results.data):
+            whine('Unable to open the file '+results.data,'err');
+            sys.exit()
+        
     em = WrappedEmulator(False)
     connect_zOS(results.IP+":"+results.PORT)
     
