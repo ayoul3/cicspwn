@@ -1058,9 +1058,13 @@ def fetch_content(filename, ridfld, keylength):
         ridfld is they index key in a VSAM file
     """
     em.move_to(1,2)
-
-    req_read = CECI+' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
-            
+    data = em.screen_get()
+    
+    if "STATUS:  SESSION ENDED" in data[1]:
+        req_read = CECI+' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+    else:
+        req_read = ' READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
+        
     em.safe_send(req_read)
     em.send_enter()
     data = em.screen_get()
@@ -1071,6 +1075,7 @@ def fetch_content(filename, ridfld, keylength):
     em.send_enter() # Send twice Enter to confirm transaction
     
     data = em.screen_get()
+    
     if "NOTFND" in data[22]:
         whine("No more records in the file",'info')
         sys.exit();
@@ -1121,7 +1126,7 @@ def change_file_attributes(filename, attr):
 
 def update_content(filename, ridfld, content_file):
     em.move_to(1,2)
-    req_read = CECI+' READ FI('+filename.upper()+') RID('+str(ridfld)+') UPDATE TOKEN(&TOK5)'
+    req_read = ' READ FI('+filename.upper()+') RID('+str(ridfld)+') UPDATE TOKEN(&TOK5)'
             
     em.safe_send(req_read)
     em.send_enter()    
@@ -1133,12 +1138,12 @@ def update_content(filename, ridfld, content_file):
         whine(data[22],'err')
     
     em.move_to(1,2)    
-    req_read = CECI+' REWRITE FI('+filename.upper()+') TOKEN(&TOK5) FROM(&SQLKHDS)'
+    req_read = ' REWRITE FI('+filename.upper()+') TOKEN(&TOK5) FROM(&SQLKHDS)'
             
     em.safe_send(req_read)
     em.send_enter()    
     em.send_enter() # Send twice Enter to confirm transaction
-    show_screen();
+    
     if "NORMAL" in data[22]:
         whine("record "+ridfld+" updated successfully",'good')
     else:
@@ -1192,13 +1197,14 @@ def add_content(filename, ridfld, content_file):
     
     
     em.move_to(1,2)
-    req_write = CECI+' WRITE FI('+filename.upper()+') RI('+str(ridfld)+') FROM(&SQLKHDS)'
+    req_write = ' WRITE FI('+filename.upper()+') RI('+str(ridfld)+') FROM(&SQLKHDS)'
             
     em.safe_send(req_write)
     em.send_enter()        
     em.send_enter() # Send twice Enter to confirm transaction
    
     data = em.screen_get();
+    
     if "NORMAL" in data[22]:
         whine("item "+ridfld+" was added successfully to file "+filename,'good')
     elif "DUPREC" in data[22]:
@@ -1227,6 +1233,7 @@ def handle_file_content(filename, kind="read"):
     req_list_file = CEMT+' I READ FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
+    
     data = em.screen_get()
     if "Ope " in data[2]:
         file_opened = True
@@ -1252,7 +1259,7 @@ def handle_file_content(filename, kind="read"):
             
     # getting key length and record size. Can only do when then the file is enabled and opened
     em.move_to(1,2)
-    req_list_file = CEMT+' I READ FI('+filename.upper()+')'
+    req_list_file =' I FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     
@@ -1294,10 +1301,10 @@ def handle_file_content(filename, kind="read"):
             next_ridfld = 0;
             
             while int(next_ridfld) != -1 and int(next_ridfld) < 1000000:
-               ridfld = next_ridfld
-               
+               ridfld = next_ridfld               
                next_ridfld = fetch_content(filename, ridfld, keylength)
                next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
+               
     elif kind=="add":
             whine("Adding record "+results.item+" of file "+filename, 'info')
             add_content(filename, results.item, results.data)
@@ -2408,7 +2415,6 @@ if __name__ == "__main__" :
     group_storage.add_argument('--add-item', help='Add an item (--num) in FILE',dest='filename_add')
     group_storage.add_argument('--num', help='# item to read/add/update from a file or TSQueue',dest='item')
     group_storage.add_argument('--data', help='file containing new data to update the file',dest='data')
-    group_storage.add_argument('--enable-files', help='Enable a file (keyword ALL to enable every file) ',dest='ena_files')    
     group_trans.add_argument('--check-files', help='Checks security access to the files specified in <file.txt>',dest='check_files')
     
     
