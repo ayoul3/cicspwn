@@ -46,7 +46,6 @@ CEMT = "CEMT"
 CAT3_TRANS = ["CSRK","CSRS","CSAC","CQPO","CQRY","CPSS"]
 
 # TO DO:
-#   Update/add item to tsqueue
 #   Verbose mode
 #   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
@@ -964,15 +963,80 @@ def get_files(filename):
      elif number_files == 0:
        whine('No files matched the pattern','err')
 
+def add_content_tsq(tsq_name, item, content_file):
+    """
+        Adds/updates an intem in a TSQueue
+    """
+    # Go the variable screen
+    f = open(content_file,"r")
+    if not f:
+        whine("Could not open file "+data,'err');
+        sys.exit()
+    content = (''.join(f.readlines())).replace('\n','').replace('\r','')
+    
+    
+    em.move_to(1,2)
+    em.safe_send(format_request("CECI"))
+    em.send_enter()
+    data = em.screen_get()
+    if "DFHAC2002" in data[22]:
+        whine('Cannot access CECI, try --bypass to bypass RACF','err')
+        sys.exit()   
+        
+    em.send_pf5()
+            
+    em.move_to(7,2)
+    em.send_eraseEOF()
+    em.send_enter()
+
+    def_var = "&SQLKHDS  +"+str(len(content))
+    em.safe_send(def_var)
+    em.send_enter()
+    
+    em.move_to(7,2)
+    em.send_enter()
+    k= 0;
+    while k < len(content):
+      em.move_to((k/64)+3,11)
+      em.safe_send(content[k:k+64])
+      k+=64
+    em.send_enter
+    
+    # back to the normal screen
+    em.send_enter()
+    em.move_to(1,2)
+    
+    
+    em.move_to(1,2)
+    if item:
+        req_write = ' WRITEQ TS Queue('+tsq_name.upper()+') item('+str(item)+') REWRITE FROM(&SQLKHDS)'
+    else:
+        req_write = ' WRITEQ TS Queue('+tsq_name.upper()+') FROM(&SQLKHDS)'
+            
+    em.safe_send(req_write)
+    em.send_enter()        
+    em.send_enter() # Send twice Enter to confirm transaction
+   
+    data = em.screen_get();
+    
+    if "NORMAL" in data[22]:
+        whine("item was added successfully to TSQueue "+tsq_name,'good')
+    else:
+        whine("Error while  adding/updating the item",'err')
+        whine(data[22],'err')
+        
+        
 def fetch_tsq_item(tsq_name, item):
     """
         Gets the record item in a temporary storage queue.
     """
     em.move_to(1,2)
-    if item==1:
-        req_read = CECI +'READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
+    data = em.screen_get()
+    
+    if "STATUS:  SESSION ENDED" in data[1]:
+        req_read = CECI +' READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
     else:
-        req_read = 'READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
+        req_read = ' READQ TS QUEUE('+tsq_name.upper()+') ITEM('+str(item)+') INTO(&FI)'
         
     em.safe_send(req_read)
     em.send_enter()
@@ -1010,7 +1074,7 @@ def fetch_tsq_item(tsq_name, item):
          out += d[10:]
     return out
     
-def get_tsq_content():
+def handle_tsq_content(tsqueue, kind="read"):
     """
         If the file is closed or disabled, it activates it before retrieving its content
     """
@@ -1019,10 +1083,10 @@ def get_tsq_content():
     current_item = 1;
     em.move_to(1,2)
     
-    if len(results.tsq_name) > 16:
+    if len(tsqueue) > 16:
        whine('TSQueue name cannot be over 16 characters, Name will be truncated','err')
     
-    tsq_name = results.tsq_name[:16]
+    tsq_name = tsqueue[:16]
     
     
     ## get file properties ##
@@ -1044,14 +1108,22 @@ def get_tsq_content():
     
     em.send_pf3() 
     em.move_to(1,2)
-    if (results.item):
-        whine("Fetching item "+results.item+" from TSqueue "+tsq_name,"info")
-        fetch_tsq_item(tsq_name, results.item)
-    else:
-        while current_item <= items:
-           print fetch_tsq_item(tsq_name, current_item)
-           current_item +=1
-
+    if kind=="read":
+        if (results.item):
+            whine("Fetching item "+results.item+" from TSqueue "+tsq_name,"info")
+            print results.item +"\t"+ fetch_tsq_item(tsq_name, results.item)
+        else:
+            while current_item <= items:
+               print str(current_item) + "\t" +fetch_tsq_item(tsq_name, current_item)
+               current_item +=1
+    
+    elif kind=="add" and results.item:
+        whine("Updating item "+results.item+" in TSQueue "+tsq_name, 'info')
+        add_content_tsq(tsq_name, results.item, results.data)
+    elif kind=="add":
+        whine("Adding item in TSQueue "+tsq_name, 'info')
+        add_content_tsq(tsq_name, None, results.data)
+        
 def fetch_content(filename, ridfld, keylength):
     """
         Gets the record ridfld in a file.
@@ -2287,7 +2359,11 @@ def main(results):
     
     elif results.tsq_name:
         whine("Getting content of TSQeueue "+results.tsq_name, 'info')
-        get_tsq_content()
+        handle_tsq_content(results.tsq_name, kind="read")
+    
+    elif results.tsqueue_add:
+        #whine("Getting content of TSQeueue "+results.tsq_name, 'info')
+        handle_tsq_content(results.tsqueue_add, kind="add")
 
     elif results.ena_trans:
         if results.ena_trans=="ALL":
@@ -2412,7 +2488,8 @@ if __name__ == "__main__" :
     group_storage.add_argument('-e','--tsqueues', help='List all temporary storage queues on TS CICS',action='store_true',default=False,dest='tsqueues')
     group_storage.add_argument('--get-file', help='Get the content of a file. It attempts to change the status of the file if it\'s not enabled, opened or readable',dest='filename')
     group_storage.add_argument('--get-tsq', help='Get the content of a temporary storage queue. ',dest='tsq_name')
-    group_storage.add_argument('--add-item', help='Add an item (--num) in FILE',dest='filename_add')
+    group_storage.add_argument('--add-record', help='Add a record (--num) to FILE. if NUM exists, updates the record',dest='filename_add')
+    group_storage.add_argument('--add-item', help='Add an item (--num) to TSqueue. if NUM exists, updates the item',dest='tsqueue_add')
     group_storage.add_argument('--num', help='# item to read/add/update from a file or TSQueue',dest='item')
     group_storage.add_argument('--data', help='file containing new data to update the file',dest='data')
     group_trans.add_argument('--check-files', help='Checks security access to the files specified in <file.txt>',dest='check_files')
