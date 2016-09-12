@@ -64,12 +64,14 @@ Storage options:
                         status of the file if it's not enabled, opened or
                         readable
   --get-tsq TSQ_NAME    Get the content of a temporary storage queue.
-  --add-item FILENAME_ADD
-                        Add an item (--num) in FILE
+  --add-record FILENAME_ADD
+                        Add a record (--num) to FILE. if NUM exists, updates
+                        the record
+  --add-item TSQUEUE_ADD
+                        Add an item (--num) to TSqueue. if NUM exists, updates
+                        the item
   --num ITEM            # item to read/add/update from a file or TSQueue
   --data DATA           file containing new data to update the file
-  --enable-files ENA_FILES
-                        Enable a file (keyword ALL to enable every file)
 
 Transaction options:
   -t, --trans           Get all installed transactions on a CICS TS server
@@ -109,7 +111,6 @@ JOB options:
   --jcl JCL             Custom JCL file to provide
   --rexx REXX_FILE      Custom REXX file to execute in memory. No label or
                         line continuation must be present in the file
-
 
 ```
 ## Prerequisites 
