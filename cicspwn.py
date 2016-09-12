@@ -46,6 +46,7 @@ CEMT = "CEMT"
 CAT3_TRANS = ["CSRK","CSRS","CSAC","CQPO","CQRY","CPSS"]
 
 # TO DO:
+#   Investigate content length of a file
 #   Verbose mode
 #   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
@@ -1174,15 +1175,18 @@ def fetch_content(filename, ridfld, keylength):
     out = ""
     for d in data:        
       if d.find("+00") < 5 and d.find("+00") > -1:
-         out += d[10:].strip()
+         out += d[10:]
     
-    print out[0:keylength]+"\t"+out[keylength:]
+    if out[0]==" ":
+        keylength +=1
+    
+    print "'"+out[0:keylength]+"':\t"+out[keylength:]
     
     return out[0:keylength]
     
 def change_file_attributes(filename, attr):
     em.move_to(1,2)
-    req_set_file = CEMT+' Set READ FI('+filename.upper()+') '+attr
+    req_set_file = ' Set FI('+filename.upper()+') '+attr
     em.safe_send(format_request(req_set_file))
     em.send_enter()
     data = em.screen_get()
@@ -1196,7 +1200,7 @@ def change_file_attributes(filename, attr):
         whine('Cannot open/enable/read or update the file. Might not exist on disk','err')
         whine(data[22],'err')
 
-def update_content(filename, ridfld, content_file):
+def update_content(filename, ridfld, recordsize, content_file):
     em.move_to(1,2)
     req_read = ' READ FI('+filename.upper()+') RID('+str(ridfld)+') UPDATE TOKEN(&TOK5)'
             
@@ -1223,7 +1227,7 @@ def update_content(filename, ridfld, content_file):
         whine(data[22],'err')
         
     
-def add_content(filename, ridfld, content_file):
+def add_content(filename, ridfld, recordsize, content_file):
     """
         Gets the record ridfld in a file.
         ridfld is they index key in a VSAM file
@@ -1235,7 +1239,9 @@ def add_content(filename, ridfld, content_file):
         sys.exit()
     content = (''.join(f.readlines())).replace('\n','').replace('\r','')
     content = ridfld+content
-    
+    #if len(content) < recordsize:
+    #    content = (int(recordsize-len(content)) * " ") + content
+        
     em.move_to(1,2)
     em.safe_send(format_request("CECI"))
     em.send_enter()
@@ -1281,9 +1287,9 @@ def add_content(filename, ridfld, content_file):
         whine("item "+ridfld+" was added successfully to file "+filename,'good')
     elif "DUPREC" in data[22]:
         whine('Found record '+ridfld+', will proceed with the update','info')
-        update_content(filename, ridfld, content_file)
+        update_content(filename, ridfld, recordsize, content_file)
     else:
-        whine("Error while updating the record "+ridfld,'err')
+        whine("Error while adding the record "+ridfld,'err')
         whine(data[22],'err')
     
 def handle_file_content(filename, kind="read"):
@@ -1302,7 +1308,7 @@ def handle_file_content(filename, kind="read"):
     ridfld = "000000";
     
     ## get file properties ##
-    req_list_file = CEMT+' I READ FI('+filename.upper()+')'
+    req_list_file = CEMT+' I FI('+filename.upper()+')'
     em.safe_send(format_request(req_list_file))
     em.send_enter()
     
@@ -1322,9 +1328,9 @@ def handle_file_content(filename, kind="read"):
             change_file_attributes(filename,'DISABLED')
         
         if kind=="update":
-            change_file_attributes(filename,'ENABLED OPEN ADD UPDATE')
+            change_file_attributes(filename,'OPEN ENA ADD UPDATE')
         else:
-            change_file_attributes(filename,'ENABLED OPEN READ')
+            change_file_attributes(filename,'OPEN ENA READ')
         #if not file_opened:
         #    change_file_attributes(filename,'OPE')
         #    show_screen()
@@ -1379,7 +1385,7 @@ def handle_file_content(filename, kind="read"):
                
     elif kind=="add":
             whine("Adding record "+results.item+" of file "+filename, 'info')
-            add_content(filename, results.item, results.data)
+            add_content(filename, results.item, recordsize, results.data )
             
 def dummy_jcl(lhost):
     """
