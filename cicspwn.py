@@ -46,7 +46,6 @@ CEMT = "CEMT"
 CAT3_TRANS = ["CSRK","CSRS","CSAC","CQPO","CQRY","CPSS"]
 
 # TO DO:
-#   Investigate content length of a file
 #   Verbose mode
 #   Write a CICS SHELL in COBOL
 #   CEDA VIEW CON
@@ -579,9 +578,11 @@ def get_os_version():
     """
    version = query_cics_scrap(CEMT+" I SYS", "Oslevel(", 6, 0, 0 )
    if version:
-     version = version.strip("0").replace("0",".")
-     if len(version)==3 and version[1] !=".":
-         version = version[0]+"."+version[1:]
+     version = version[1:4]
+     #version = version.strip("0").replace("0",".")
+     version = version[0]+"."+version[1:]
+     #if len(version)==3 and version[1] !=".":
+     #    version = version[0]+"."+version[1:]
          
    return version
         
@@ -1536,6 +1537,7 @@ def ftp_jcl(lhost, job_name="FTPCICS"):
 //INPUT    DD  *
 """+cmds+"""
 /*
+/*EOF
 """
   
   return jcl_code
