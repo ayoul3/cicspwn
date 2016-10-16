@@ -1399,7 +1399,7 @@ def dummy_jcl(lhost):
       
     dummy_jcl = job_card+'''
 //*
-//STEP01 EXEC  PGM=IKJEFT01
+//STEP01 EXEC  PGM=IKJEFT01,REGION=2048K 
 //SYSTSPRT DD  SYSOUT=*
 //SYSTSIN  DD *
  FTP '''+lhost.split(":")[0]+''' '''+lhost.split(":")[1]+'''
@@ -1487,7 +1487,7 @@ def reverse_jcl(lhost, username="CICSUSEC", kind="tso"):
  te = SOCKET('SEND',sockID, '"""+prompt+"""');return 1;
 /*
 //SYSOUT     DD SYSOUT=*
-//STEP01 EXEC  PGM=IKJEFT01
+//STEP01 EXEC  PGM=IKJEFT01,REGION=2048K 
 //SYSTSPRT DD  SYSOUT=*
 //SYSTSIN  DD *
  EX 'CICSUSER."""+tmp+"""'
@@ -1592,7 +1592,7 @@ def reverse_rexx(lhost, username="CICSUSEC"):
     interpret c
 /*
 //SYSOUT     DD SYSOUT=*
-//STEP01 EXEC  PGM=IKJEFT01
+//STEP01 EXEC  PGM=IKJEFT01,REGION=2048K 
 //SYSTSPRT DD  SYSOUT=*
 //SYSTSIN  DD *
  EX 'CICSUSER."""+tmp+"""'
@@ -1645,7 +1645,7 @@ def direct_rexx(username="CICSUSEC"):
  if sock = word(s,i) then return 1;end;return 0
 /*
 //SYSOUT     DD SYSOUT=*
-//STEP01 EXEC  PGM=IKJEFT01
+//STEP01 EXEC  PGM=IKJEFT01,REGION=2048K 
 //SYSTSPRT DD  SYSOUT=*
 //SYSTSIN  DD *
  EX 'CICSUSER."""+tmp+"""'
@@ -1715,7 +1715,7 @@ def direct_jcl(port, job_name="PGMTEST", kind="tso"):
 
 /*
 //SYSOUT     DD SYSOUT=*
-//STEP01 EXEC  PGM=IKJEFT01
+//STEP01 EXEC  PGM=IKJEFT01,REGION=2048K 
 //SYSTSPRT DD  SYSOUT=*
 //SYSTSIN  DD *
  EX 'CICSUSER."""+tmp+"""'
@@ -2530,6 +2530,10 @@ if __name__ == "__main__" :
        whine('Unable to open the file '+results.check_files,'err');
        sys.exit();
        
+    if results.submit and results.submit not in ['direct_unix','direct_tso','reverse_tso','reverse_unix','reverse_rexx','direct_rexx','ftp','custom','dummy']:
+       whine('Submit parameter must be one of the following: direct_unix, direct_tso, reverse_tso, reverse_unix, reverse_rexx, direct_rexx, ftp, custom, dummy','err')
+       sys.exit();
+        
     if results.submit=="custom" and not results.jcl:
        whine('use --jcl option to input path of JCL to submit','err');
        sys.exit();
