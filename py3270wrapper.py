@@ -60,13 +60,44 @@ class EmulatorIntermediate(Emulator):
 			return False
 			# if str(e) == 'Keyboard locked':
 
+	def find_field_start_on_row(self,row):
+		# This is as usual a horrible hack
+		# rows start at 1 (not 0)
+		# from what I can tell - if you get a SF(c0=c*) it means a start of field.
+		# This is then what we are looking for
+		
+		for _ in xrange(0,2):
+			response = self.exec_command('ReadBuffer(Ascii)')
+			if ''.join(response.data).strip()=="":
+				sleep(0.3)
+			else:
+				break
+		else:
+			if ''.join(response.data).strip()=="":
+				raise Exception("Unable to retrieve buffer data")
+		for counter, char in enumerate(response.data[row-1].split()):
+			if char.startswith("SF(c0=c"):
+				return counter+2 # +1 to convert the 0 based index to 1 based
+								 # +1 to move to actual field
+								 
+
+
+
 	# Search the screen for text when we don't know exactly where it is, checking for read errors
 	def find_response(self, response):
+		ret = self.find_response_xy(response)
+		if ret is False:
+			return False
+		if type(ret)==tuple:
+			return True
+
+	# Search the screen for text when we don't know exactly where it is, checking for read errors
+	def find_response_xy(self, response):
 		for rows in xrange(1,int(self.status.row_number)+1):
 			for cols in xrange(1,int(self.status.col_number)+1-len(response)):
 				try:
 					if self.string_found(rows, cols, response):
-						return True
+						return (cols,rows)
 				except CommandError, e:
 					# We hit a read error, usually because the screen hasn't returned
 					# increasing the delay works

