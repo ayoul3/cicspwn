@@ -145,7 +145,27 @@ class EmulatorIntermediate(Emulator):
 					return False
 		return False
 	
-	# Get the current x3270 cursor position
+	def find_field_start_on_row(self,row):
+		# This is as usual a horrible hack
+		# rows start at 1 (not 0)
+		# from what I can tell - if you get a SF(c0=c*) it means a start of field.
+		# This is then what we are looking for
+		
+		for _ in xrange(0,2):
+			response = self.exec_command('ReadBuffer(Ascii)')
+			if ''.join(response.data).strip()=="":
+				sleep(0.3)
+			else:
+				break
+		else:
+			if ''.join(response.data).strip()=="":
+				raise Exception("Unable to retrieve buffer data")
+		for counter, char in enumerate(response.data[row-1].split()):
+			if char.startswith("SF(c0=c"):
+				return counter+2 # +1 to convert the 0 based index to 1 based
+								 # +1 to move to actual field
+    
+    # Get the current x3270 cursor position
 	def get_pos(self):
 		results = self.exec_command('Query(Cursor)')
 		row = int(results.data[0].split(' ')[0])
@@ -273,8 +293,9 @@ def do_authenticate(userid, password, pos_pass):
    posx, posy = em.get_pos()
       
    em.safe_send(results.userid)   
-         
-   em.move_to(pos_pass,posy+1)
+   pwd_y_pos=em.find_field_start_on_row(pos_pass)
+            
+   em.move_to(pos_pass,pwd_y_pos)
    em.safe_send(results.password)
    em.send_enter()
   
@@ -285,10 +306,11 @@ def do_authenticate(userid, password, pos_pass):
    elif any("Your password is invalid" in s for s in data):
       whine('Incorrect password information','err')
       sys.exit()
-   elif "DFHCE3549" in data[23]:
-      return True
+   elif any("Sign on failure" in s for s in data):
+      whine('Invalid credentials','err')
+      sys.exit();
     
-def check_valid_applid(applid, do_authent, method = 1):
+def check_valid_applid(applid, do_authent, method = 1,custom_cics=False):
     """
        Tries to access a CICS app in VTAM screen. If VTAM needs
        authentication, it calls do_authenticate()
@@ -325,18 +347,26 @@ def check_valid_applid(applid, do_authent, method = 1):
         do_authenticate(results.userid, results.password, pos_pass)
         whine("Successful authentication",'good')
     
-    if method ==1:
+    if custom_cics:
+      em.safe_send(custom_cics)
+      em.send_enter()
       em.send_clear()
-      
-    if method ==3:
-      em.send_pf3()
-      sleep(SLEEP)
-      em.send_clear()
-            
-    if method ==2:
-      em.send_clear()
-      sleep(SLEEP)
-      em.send_clear()    
+      em.safe_send("garbage")
+      em.send_enter()
+    
+    else:      
+        if method ==1:
+          em.send_clear()
+          
+        if method ==3:
+          em.send_pf3()
+          sleep(SLEEP)
+          em.send_clear()
+                
+        if method ==2:
+          em.send_clear()
+          sleep(SLEEP)
+          em.send_clear()    
       
     em.move_to(1,1)  
     #em.send_string('CESF') #CICS CESF is the Signoff command
@@ -353,7 +383,7 @@ def check_valid_applid(applid, do_authent, method = 1):
     else:
         method += 1
         whine('Returning to CICS terminal via method '+str(method),kind='info')
-        return check_valid_applid(applid, do_authent, method)
+        return check_valid_applid(applid, do_authent, method,custom_cics=custom_cics)
 
 def query_cics(request, verify, line):
     """
@@ -561,6 +591,7 @@ def get_users():
            out.append(d[pos:pos+8].strip())
     
     em.send_pf3()
+    out=list(set(out))
     return out
 
 def get_version():
@@ -978,7 +1009,8 @@ def add_content_tsq(tsq_name, item, content_file):
     
     
     em.move_to(1,2)
-    em.safe_send(format_request("CECI"))
+    
+    em.safe_send(format_request(CECI))
     em.send_enter()
     data = em.screen_get()
     if "DFHAC2002" in data[22]:
@@ -1176,7 +1208,7 @@ def fetch_content(filename, ridfld, keylength):
     out = ""
     for d in data:        
       if d.find("+00") < 5 and d.find("+00") > -1:
-         out += d[10:]
+         out += d[10:].rstrip()
     
     if out[0]==" ":
         keylength +=1
@@ -1244,7 +1276,7 @@ def add_content(filename, ridfld, recordsize, content_file):
     #    content = (int(recordsize-len(content)) * " ") + content
         
     em.move_to(1,2)
-    em.safe_send(format_request("CECI"))
+    em.safe_send(format_request(CECI))
     em.send_enter()
     data = em.screen_get()
     if "DFHAC2002" in data[22]:
@@ -1286,6 +1318,8 @@ def add_content(filename, ridfld, recordsize, content_file):
     
     if "NORMAL" in data[22]:
         whine("item "+ridfld+" was added successfully to file "+filename,'good')
+    if "LENGERR" in data[22]:
+        whine("Error length, whole record (key+data) must be equal to "+recordsize,'good')
     elif "DUPREC" in data[22]:
         whine('Found record '+ridfld+', will proceed with the update','info')
         update_content(filename, ridfld, recordsize, content_file)
@@ -1495,7 +1529,7 @@ def reverse_jcl(lhost, username="CICSUSEC", kind="tso"):
 //SYSIN    DD  DUMMY
 /*EOF
 """
-  
+
   return jcl_code
 
 def ftp_jcl(lhost, job_name="FTPCICS"):
@@ -2315,7 +2349,7 @@ def main(results):
     CECI = results.ceci
     
     # Checking if APPLID provided is valid
-    if not check_valid_applid(results.applid, do_authent):
+    if not check_valid_applid(results.applid, do_authent,custom_cics=results.custom_cics):
         whine("Applid "+results.applid+" not valid, try again maybe it's a network lag", "err")
         sys.exit()
     
@@ -2485,7 +2519,7 @@ if __name__ == "__main__" :
     group_info.add_argument('--bypass', help='if CEDA is available, it copies CEMT and CECI to new transid which bypasses RACF',action='store_true',dest='bypass')
     group_info.add_argument('-b', help='if CEDA is available, it copies OLD_TRAN to NEW TRAN (-n option) to bypass RACF. if no NEW TRAN is specified, CICSpwn chooses an IBM supplied transaction always available',dest='old_tran')
     group_info.add_argument('-n', help='if CEDA is available, it copies OLD_TRAN (-b) to NEW TRAN to bypass RACF',dest='new_tran')
-    
+    parser.add_argument('--custom-exit',help='Custom string to type to ext to CICS terminal',dest='custom_cics',default=False)
     
     group_trans.add_argument('-t','--trans', help='Get all installed transactions on a CICS TS server',action='store_true', default=False, dest='trans')
     group_trans.add_argument('--enable-trans', help='Enable a transaction (keyword ALL to enable every transaction) ',dest='ena_trans')
